@@ -22675,6 +22675,7 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
         continuedTasksSnapshot: continuedTasks,
         directorEvaluation: plan.directorEvaluation || "",
         directorRating: plan.directorRating || "",
+        directorReviewedAt: plan.directorRating ? (/* @__PURE__ */ new Date()).toISOString() : "",
         createdAt: (/* @__PURE__ */ new Date()).toISOString()
       };
       const updatedSavedReports = [...plan.savedReports || [], newReport];
@@ -22735,6 +22736,8 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
       });
       const updatedPlan = {
         ...plan,
+        directorRating: directorRatingInput || plan.directorRating || "",
+        directorEvaluation: directorEvaluationInput || plan.directorEvaluation || "",
         savedReports: updatedSavedReports
       };
       try {
@@ -22757,21 +22760,219 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
       }
     };
     const handleSaveActiveDirectorEvaluation = async () => {
+      const rating = plan.directorRating || "";
+      const evaluation = plan.directorEvaluation || "";
+      if (!rating) {
+        showAlert("Thi\u1EBFu th\xF4ng tin", "Vui l\xF2ng ch\u1ECDn m\u1ED9t m\u1EE9c \u0111\u1ED9 ho\xE0n th\xE0nh tr\u01B0\u1EDBc khi c\u1EADp nh\u1EADt \u0111\xE1nh gi\xE1.");
+        return;
+      }
       try {
+        const existing = plan.savedReports || [];
+        let syncedCount = 0;
+        let updatedSavedReports = existing;
+        if (existing.length > 0) {
+          const sortedByDate = [...existing].sort(
+            (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+          );
+          const pending = sortedByDate.filter((r) => !r.directorRating);
+          const targetIds = new Set(
+            pending.length > 0 ? pending.map((r) => r.id) : [sortedByDate[0].id]
+          );
+          updatedSavedReports = existing.map((r) => {
+            if (targetIds.has(r.id)) {
+              syncedCount++;
+              return {
+                ...r,
+                directorRating: rating,
+                directorEvaluation: evaluation,
+                directorReviewedAt: (/* @__PURE__ */ new Date()).toISOString()
+              };
+            }
+            return r;
+          });
+        }
         const planToSave = {
           ...plan,
-          directorRating: plan.directorRating || "",
-          directorEvaluation: plan.directorEvaluation || ""
+          directorRating: rating,
+          directorEvaluation: evaluation,
+          directorReviewedAt: (/* @__PURE__ */ new Date()).toISOString(),
+          savedReports: updatedSavedReports
         };
         setPlan(planToSave);
         await set(ref(db, `weekly_plans/${plan.id}`), planToSave);
         showAlert(
           "\u0110\xE3 l\u01B0u \u0111\xE1nh gi\xE1",
-          "L\u01B0u \xFD ki\u1EBFn v\xE0 \u0111\xE1nh gi\xE1 m\u1EE9c \u0111\u1ED9 ho\xE0n th\xE0nh c\u1EE7a Ban Gi\xE1m \u0111\u1ED1c cho tu\u1EA7n n\xE0y th\xE0nh c\xF4ng!"
+          syncedCount > 0 ? `\u0110\xE3 c\u1EADp nh\u1EADt \u0111\xE1nh gi\xE1 "${rating}" v\xE0 \u0111\u1ED3ng b\u1ED9 tr\u1EA1ng th\xE1i cho ${syncedCount} b\xE1o c\xE1o tu\u1EA7n \u0111\xE3 l\u01B0u.` : `\u0110\xE3 c\u1EADp nh\u1EADt \u0111\xE1nh gi\xE1 "${rating}" cho tu\u1EA7n n\xE0y.`
         );
       } catch (error2) {
         console.error("Error saving active director evaluation:", error2);
-        showAlert("L\u1ED7i", "Kh\xF4ng th\u1EC3 l\u01B0u \u0111\xE1nh gi\xE1 c\u1EE7a Ban gi\xE1m \u0111\u1ED1c.");
+        showAlert("L\u1ED7i", "Kh\xF4ng th\u1EC3 l\u01B0u \u0111\xE1nh gi\xE1 c\u1EE7a C\u1EA5p Qu\u1EA3n l\xFD / Ban Gi\xE1m \u0111\u1ED1c.");
+      }
+    };
+    const [selectedMonth, setSelectedMonth] = (0, import_react3.useState)(
+      () => format(/* @__PURE__ */ new Date(), "yyyy-MM")
+    );
+    const [isMergingPdf, setIsMergingPdf] = (0, import_react3.useState)(false);
+    const monthlyReports = (0, import_react3.useMemo)(() => {
+      const all = plan.savedReports || [];
+      return all.filter((r) => {
+        try {
+          return format(new Date(r.createdAt), "yyyy-MM") === selectedMonth;
+        } catch (e) {
+          return false;
+        }
+      }).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    }, [plan.savedReports, selectedMonth]);
+    const availableMonths = (0, import_react3.useMemo)(() => {
+      const set2 = /* @__PURE__ */ new Set();
+      (plan.savedReports || []).forEach((r) => {
+        try {
+          set2.add(format(new Date(r.createdAt), "yyyy-MM"));
+        } catch (e) {
+        }
+      });
+      set2.add(format(/* @__PURE__ */ new Date(), "yyyy-MM"));
+      return Array.from(set2).sort().reverse();
+    }, [plan.savedReports]);
+    const buildReportSectionHtml = (report, index) => {
+      const completedHtml = report.completedTasksSnapshot && report.completedTasksSnapshot.length > 0 ? `<ul style="padding-left: 20px; margin: 0; font-size: 12.5px; line-height: 1.6; list-style-type: decimal;">
+            ${report.completedTasksSnapshot.map(
+        (t) => `<li style="margin-bottom: 6px;"><strong>${t.name}</strong>${t.endDate ? ` (H\u1EA1n: ${format(new Date(t.endDate), "dd/MM/yyyy")})` : ""}${t.expectedResult ? `<br/><span style="color:#4b5563;">\u{1F3AF} K\u1EBFt qu\u1EA3 k\u1EF3 v\u1ECDng: ${t.expectedResult}</span>` : ""}${t.adjustedExpectedResult ? `<br/><span style="color:#166534;font-weight:bold;">\u270D\uFE0F T\u1EF1 b\xE1o c\xE1o: ${t.adjustedExpectedResult}</span>` : ""}</li>`
+      ).join("")}
+          </ul>` : `<p style="font-size:12.5px;color:#6b7280;font-style:italic;margin:0;">Ch\u01B0a c\xF3 c\xF4ng vi\u1EC7c n\xE0o ho\xE0n th\xE0nh 100%.</p>`;
+      const continuedHtml = report.continuedTasksSnapshot && report.continuedTasksSnapshot.length > 0 ? `<ul style="padding-left: 20px; margin: 0; font-size: 12.5px; line-height: 1.6; list-style-type: decimal;">
+            ${report.continuedTasksSnapshot.map(
+        (t) => `<li style="margin-bottom: 6px;"><strong>${t.name}</strong>${t.endDate ? ` (H\u1EA1n: ${format(new Date(t.endDate), "dd/MM/yyyy")})` : ""}${t.adjustedExpectedResult ? `<br/><span style="color:#854d0e;font-weight:bold;">\u270D\uFE0F T\u1EF1 b\xE1o c\xE1o: ${t.adjustedExpectedResult}</span>` : ""}</li>`
+      ).join("")}
+          </ul>` : `<p style="font-size:12.5px;color:#6b7280;font-style:italic;margin:0;">Kh\xF4ng c\xF3 c\xF4ng vi\u1EC7c chuy\u1EC3n ti\u1EBFp.</p>`;
+      return `
+      <div style="${index > 0 ? "page-break-before: always;" : ""} padding-top: ${index > 0 ? "10px" : "0"};">
+        <div style="background:#fef2f2;border-left:5px solid #dc2626;padding:10px 14px;margin-bottom:18px;border-radius:0 6px 6px 0;">
+          <h3 style="margin:0;font-size:15px;color:#991b1b;font-weight:bold;text-transform:uppercase;">Tu\u1EA7n ${index + 1}: ${report.weekName}</h3>
+          <p style="margin:3px 0 0 0;font-size:11px;color:#6b7280;">Ng\xE0y l\u1EADp b\xE1o c\xE1o: ${format(new Date(report.createdAt), "dd/MM/yyyy HH:mm")}</p>
+        </div>
+        <div style="margin-bottom:18px;">
+          <h4 style="font-size:13px;text-transform:uppercase;color:#15803d;border-bottom:1px solid #bbf7d0;padding-bottom:4px;margin-bottom:8px;font-weight:bold;">1. C\xF4ng vi\u1EC7c \u0111\xE3 ho\xE0n th\xE0nh (100%)</h4>
+          ${completedHtml}
+        </div>
+        <div style="margin-bottom:18px;">
+          <h4 style="font-size:13px;text-transform:uppercase;color:#b45309;border-bottom:1px solid #fef3c7;padding-bottom:4px;margin-bottom:8px;font-weight:bold;">2. C\xF4ng vi\u1EC7c chuy\u1EC3n ti\u1EBFp</h4>
+          ${continuedHtml}
+        </div>
+        <div style="margin-bottom:18px;">
+          <h4 style="font-size:13px;text-transform:uppercase;color:#1e40af;border-bottom:1px solid #bfdbfe;padding-bottom:4px;margin-bottom:8px;font-weight:bold;">3. N\u1ED9i dung b\xE1o c\xE1o / \u0110\xE1nh gi\xE1 b\u1ED5 sung</h4>
+          <div style="font-size:12.5px;line-height:1.6;background:#f9fafb;padding:12px;border-radius:6px;border:1px solid #e5e7eb;">
+            ${report.reportContent || '<p style="color:#6b7280;font-style:italic;margin:0;">Kh\xF4ng c\xF3 n\u1ED9i dung b\u1ED5 sung.</p>'}
+          </div>
+        </div>
+        <div style="margin-bottom:10px;background:#fef2f2;border:1px solid #fee2e2;border-radius:8px;padding:14px;">
+          <h4 style="font-size:13px;text-transform:uppercase;color:#991b1b;margin:0 0 6px 0;font-weight:bold;">4. \u0110\xE1nh gi\xE1 c\u1EE7a C\u1EA5p Qu\u1EA3n l\xFD / Ban Gi\xE1m \u0110\u1ED1c</h4>
+          <p style="font-size:12.5px;margin:4px 0 10px 0;"><strong>M\u1EE9c \u0111\u1ED9 ho\xE0n th\xE0nh:</strong>
+            ${report.directorRating ? `<span style="background:#fecaca;color:#991b1b;font-weight:bold;padding:3px 10px;border-radius:9999px;font-size:11px;text-transform:uppercase;display:inline-block;">${report.directorRating}</span>` : `<span style="color:#6b7280;font-style:italic;">Ch\u01B0a \u0111\xE1nh gi\xE1</span>`}
+          </p>
+          <div style="font-size:12.5px;line-height:1.5;padding:10px;background:#fff;border:1px solid #e5e7eb;border-radius:6px;min-height:40px;">
+            ${report.directorEvaluation ? report.directorEvaluation.replace(/\n/g, "<br/>") : '<p style="color:#6b7280;font-style:italic;margin:0;">Ch\u01B0a c\xF3 nh\u1EADn x\xE9t.</p>'}
+          </div>
+        </div>
+      </div>`;
+    };
+    const handleExportMonthlyPdf = async () => {
+      if (monthlyReports.length === 0) {
+        showAlert("Ch\u01B0a c\xF3 d\u1EEF li\u1EC7u", "Th\xE1ng n\xE0y ch\u01B0a c\xF3 b\xE1o c\xE1o tu\u1EA7n n\xE0o \u0111\u01B0\u1EE3c l\u01B0u \u0111\u1EC3 gh\xE9p file PDF.");
+        return;
+      }
+      setIsMergingPdf(true);
+      try {
+        const html2pdfLib = await loadHtml2Pdf();
+        const [yy, mm] = selectedMonth.split("-");
+        const monthLabel = `Th\xE1ng ${mm}/${yy}`;
+        const ratedCount = monthlyReports.filter((r) => r.directorRating).length;
+        const totalCompleted = monthlyReports.reduce(
+          (acc, r) => acc + ((r.completedTasksSnapshot || []).length),
+          0
+        );
+        const totalContinued = monthlyReports.reduce(
+          (acc, r) => acc + ((r.continuedTasksSnapshot || []).length),
+          0
+        );
+        const element = document.createElement("div");
+        element.style.padding = "36px";
+        element.style.fontFamily = "Arial, sans-serif";
+        element.style.color = "#111827";
+        const summaryRows = monthlyReports.map(
+          (r, i) => `<tr>
+            <td style="border:1px solid #e5e7eb;padding:6px 8px;text-align:center;font-size:12px;">${i + 1}</td>
+            <td style="border:1px solid #e5e7eb;padding:6px 8px;font-size:12px;">${r.weekName}</td>
+            <td style="border:1px solid #e5e7eb;padding:6px 8px;text-align:center;font-size:12px;">${format(new Date(r.createdAt), "dd/MM/yyyy")}</td>
+            <td style="border:1px solid #e5e7eb;padding:6px 8px;text-align:center;font-size:12px;">${(r.completedTasksSnapshot || []).length}</td>
+            <td style="border:1px solid #e5e7eb;padding:6px 8px;text-align:center;font-size:12px;font-weight:bold;color:${r.directorRating ? "#991b1b" : "#6b7280"};">${r.directorRating || "Ch\u01B0a \u0111\xE1nh gi\xE1"}</td>
+          </tr>`
+        ).join("");
+        element.innerHTML = `
+        <div style="text-align:center;margin-bottom:26px;padding-bottom:16px;border-bottom:3px double #dc2626;">
+          <h1 style="font-size:21px;text-transform:uppercase;margin:0 0 6px 0;color:#dc2626;font-weight:bold;">B\xC1O C\xC1O T\u1ED4NG H\u1EE2P C\xD4NG VI\u1EC6C THEO TH\xC1NG</h1>
+          <h2 style="font-size:16px;margin:0 0 10px 0;color:#374151;">${monthLabel}</h2>
+          <p style="font-size:12px;color:#6b7280;margin:2px 0;">Ng\xE0y xu\u1EA5t file: ${format(/* @__PURE__ */ new Date(), "dd/MM/yyyy HH:mm")}</p>
+        </div>
+        <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:22px;">
+          <tr>
+            <td style="width:50%;padding:4px 0;"><strong>Nh\xE2n vi\xEAn:</strong> ${plan.employeeName || "Ch\u01B0a nh\u1EADp"}</td>
+            <td style="width:50%;padding:4px 0;"><strong>B\u1ED9 ph\u1EADn:</strong> ${plan.department || "Ch\u01B0a ch\u1ECDn"}</td>
+          </tr>
+          <tr>
+            <td style="padding:4px 0;"><strong>S\u1ED1 tu\u1EA7n b\xE1o c\xE1o:</strong> ${monthlyReports.length} tu\u1EA7n</td>
+            <td style="padding:4px 0;"><strong>\u0110\xE3 \u0111\u01B0\u1EE3c \u0111\xE1nh gi\xE1:</strong> ${ratedCount}/${monthlyReports.length} tu\u1EA7n</td>
+          </tr>
+        </table>
+        <div style="margin-bottom:24px;">
+          <h3 style="font-size:14px;text-transform:uppercase;color:#1e40af;border-bottom:1px solid #bfdbfe;padding-bottom:5px;margin-bottom:10px;font-weight:bold;">T\u1ED5ng quan c\xE1c tu\u1EA7n trong th\xE1ng</h3>
+          <table style="width:100%;border-collapse:collapse;">
+            <thead>
+              <tr style="background:#f3f4f6;">
+                <th style="border:1px solid #e5e7eb;padding:7px 8px;font-size:12px;">TT</th>
+                <th style="border:1px solid #e5e7eb;padding:7px 8px;font-size:12px;text-align:left;">T\xEAn tu\u1EA7n b\xE1o c\xE1o</th>
+                <th style="border:1px solid #e5e7eb;padding:7px 8px;font-size:12px;">Ng\xE0y l\u1EADp</th>
+                <th style="border:1px solid #e5e7eb;padding:7px 8px;font-size:12px;">Vi\u1EC7c ho\xE0n th\xE0nh</th>
+                <th style="border:1px solid #e5e7eb;padding:7px 8px;font-size:12px;">\u0110\xE1nh gi\xE1</th>
+              </tr>
+            </thead>
+            <tbody>${summaryRows}</tbody>
+          </table>
+          <p style="font-size:12.5px;margin-top:10px;color:#374151;">
+            <strong>T\u1ED5ng c\xF4ng vi\u1EC7c ho\xE0n th\xE0nh trong th\xE1ng:</strong> ${totalCompleted} &nbsp;|&nbsp;
+            <strong>T\u1ED5ng c\xF4ng vi\u1EC7c chuy\u1EC3n ti\u1EBFp:</strong> ${totalContinued}
+          </p>
+        </div>
+        ${monthlyReports.map((r, i) => buildReportSectionHtml(r, i + 1)).join("")}
+        <div style="margin-top:50px;display:flex;justify-content:space-between;page-break-inside:avoid;">
+          <div style="text-align:center;width:45%;">
+            <p style="font-size:13px;margin-bottom:60px;"><strong>Nh\xE2n vi\xEAn b\xE1o c\xE1o</strong><br/><span style="font-size:11px;color:#6b7280;">(K\xFD v\xE0 ghi r\xF5 h\u1ECD t\xEAn)</span></p>
+            <p style="font-size:13px;font-weight:bold;color:#374151;">${plan.employeeName || ""}</p>
+          </div>
+          <div style="text-align:center;width:45%;">
+            <p style="font-size:13px;margin-bottom:60px;"><strong>C\u1EA5p Qu\u1EA3n l\xFD / Ban Gi\xE1m \u0110\u1ED1c</strong><br/><span style="font-size:11px;color:#6b7280;">(K\xFD v\xE0 duy\u1EC7t)</span></p>
+            <p style="font-size:13px;font-weight:bold;color:#374151;">_______________________</p>
+          </div>
+        </div>`;
+        const safeName = (plan.employeeName || "Nhan_vien").replace(/\s+/g, "_");
+        const opt = {
+          margin: [10, 10, 12, 10],
+          filename: `Bao_cao_thang_${mm}-${yy}_${safeName}.pdf`,
+          image: { type: "jpeg", quality: 0.98 },
+          html2canvas: { scale: 2, useCORS: true },
+          jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+          pagebreak: { mode: ["css", "legacy"] }
+        };
+        await html2pdfLib().from(element).set(opt).save();
+        showAlert(
+          "Xu\u1EA5t file th\xE0nh c\xF4ng",
+          `\u0110\xE3 gh\xE9p ${monthlyReports.length} b\xE1o c\xE1o tu\u1EA7n c\u1EE7a ${monthLabel} th\xE0nh 1 file PDF duy nh\u1EA5t.`
+        );
+      } catch (err) {
+        console.error("Monthly PDF export error:", err);
+        showAlert("L\u1ED7i xu\u1EA5t PDF", "\u0110\xE3 x\u1EA3y ra l\u1ED7i khi gh\xE9p file PDF b\xE1o c\xE1o th\xE1ng.");
+      } finally {
+        setIsMergingPdf(false);
       }
     };
     const handleExportPdf = async (report) => {
@@ -23063,6 +23264,14 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
             className: `px-6 py-3 font-medium text-sm border-b-2 transition-colors ${activeTab === "checklist" ? "border-red-600 text-red-600" : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"}`,
             onClick: () => setActiveTab("checklist"),
             children: "Checklist c\xF4ng vi\u1EC7c th\xE1ng"
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          "button",
+          {
+            className: `px-6 py-3 font-medium text-sm border-b-2 transition-colors ${activeTab === "monthly" ? "border-red-600 text-red-600" : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"}`,
+            onClick: () => setActiveTab("monthly"),
+            children: "B\xE1o c\xE1o 4 tu\u1EA7n / th\xE1ng"
           }
         ),
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
@@ -23658,7 +23867,7 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
           }
         ),
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "mt-8 bg-red-50/40 border border-red-200 rounded-2xl p-5 shadow-xs", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", { className: "font-extrabold text-red-900 text-sm uppercase mb-4 flex items-center gap-2", children: "\u{1F451} \u0110\xE1nh gi\xE1 m\u1EE9c \u0111\u1ED9 ho\xE0n th\xE0nh c\u1EE7a Ban Gi\xE1m \u0110\u1ED1c" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", { className: "font-extrabold text-red-900 text-sm uppercase mb-4 flex items-center gap-2", children: "\u{1F451} \u0110\xE1nh gi\xE1 m\u1EE9c \u0111\u1ED9 ho\xE0n th\xE0nh c\u1EE7a C\u1EA5p Qu\u1EA3n l\xFD / Ban Gi\xE1m \u0110\u1ED1c" }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "mb-4", children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "block text-xs font-bold text-red-850 mb-2 uppercase tracking-wide", children: "Ph\xE2n lo\u1EA1i m\u1EE9c \u0111\u1ED9 ho\xE0n th\xE0nh:" }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "flex flex-wrap gap-2", children: ["Xu\u1EA5t s\u1EAFc", "T\u1ED1t", "\u0110\u1EA1t y\xEAu c\u1EA7u", "C\u1EA7n c\u1ED1 g\u1EAFng", "Ch\u01B0a \u0111\u1EA1t"].map((rating) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
@@ -23692,7 +23901,7 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
               className: "px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg text-xs transition-all shadow-sm active:scale-95 flex items-center gap-1.5 cursor-pointer",
               children: [
                 /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Save, { size: 14 }),
-                " C\u1EADp nh\u1EADt \u0111\xE1nh gi\xE1 BG\u0110"
+                " C\u1EADp nh\u1EADt \u0111\xE1nh gi\xE1"
               ]
             }
           ) })
@@ -23733,7 +23942,7 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
               /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { className: "p-4", children: "T\xEAn tu\u1EA7n b\xE1o c\xE1o" }),
               /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { className: "p-4", children: "Ng\xE0y t\u1EA1o" }),
               /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { className: "p-4", children: "B\xE1o c\xE1o b\u1EDFi" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { className: "p-4", children: "\u0110\xE1nh gi\xE1 c\u1EE7a Ban Gi\xE1m \u0110\u1ED1c" }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { className: "p-4", children: "Tr\u1EA1ng th\xE1i \u0111\xE1nh gi\xE1" }),
               /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { className: "p-4 text-center", children: "H\xE0nh \u0111\u1ED9ng" })
             ] }) }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("tbody", { className: "divide-y divide-gray-200 text-gray-600 font-medium", children: plan.savedReports.map((report) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", { className: "hover:bg-gray-50/50 transition-colors", children: [
@@ -23742,12 +23951,13 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
               /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { className: "p-4 text-gray-700", children: plan.employeeName || "Nh\xE2n vi\xEAn" }),
               /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { className: "p-4", children: report.directorRating ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col gap-1", children: [
                 /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider w-fit ${report.directorRating === "Xu\u1EA5t s\u1EAFc" ? "bg-green-100 text-green-800" : report.directorRating === "T\u1ED1t" ? "bg-blue-100 text-blue-800" : report.directorRating === "\u0110\u1EA1t y\xEAu c\u1EA7u" ? "bg-teal-100 text-teal-800" : report.directorRating === "C\u1EA7n c\u1ED1 g\u1EAFng" ? "bg-amber-100 text-amber-800" : "bg-red-100 text-red-800"}`, children: report.directorRating }),
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-[10px] font-bold text-green-700 uppercase tracking-wide", children: "\u2705 \u0110\xE3 \u0111\xE1nh gi\xE1" }),
                 report.directorEvaluation && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { className: "text-xs text-gray-500 line-clamp-1 italic max-w-xs", children: [
                   '"',
                   report.directorEvaluation,
                   '"'
                 ] })
-              ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-yellow-100 text-yellow-800 animate-pulse", children: "\u23F3 Ch\u1EDD BG\u0110 \u0111\xE1nh gi\xE1" }) }),
+              ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-yellow-100 text-yellow-800 animate-pulse", children: "\u23F3 Ch\u1EDD \u0111\xE1nh gi\xE1" }) }),
               /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { className: "p-4", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex items-center justify-center gap-2", children: [
                 /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
                   "button",
@@ -23780,6 +23990,91 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
             ] }, report.id)) })
           ] }) })
         ] })
+      ] }),
+      activeTab === "monthly" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col md:flex-row md:justify-between md:items-center border-b pb-4 mb-6 gap-3", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { className: "text-xl font-bold text-red-600 uppercase", children: "\u{1F4DA} B\xE1o c\xE1o t\u1ED5ng h\u1EE3p 4 tu\u1EA7n / th\xE1ng" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-gray-500 mt-1", children: "Gh\xE9p to\xE0n b\u1ED9 b\xE1o c\xE1o tu\u1EA7n \u0111\xE3 l\u01B0u trong th\xE1ng th\xE0nh 1 file PDF duy nh\u1EA5t cho nh\xE2n vi\xEAn." })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex items-center gap-2", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+              "select",
+              {
+                value: selectedMonth,
+                onChange: (e) => setSelectedMonth(e.target.value),
+                className: "bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm font-semibold outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer",
+                children: availableMonths.map((m) => {
+                  const [y, mo] = m.split("-");
+                  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: m, children: `Th\xE1ng ${mo}/${y}` }, m);
+                })
+              }
+            ),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+              "button",
+              {
+                onClick: handleExportMonthlyPdf,
+                disabled: isMergingPdf || monthlyReports.length === 0,
+                className: "px-5 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-bold rounded-lg text-sm transition-all shadow-sm active:scale-95 flex items-center gap-2 cursor-pointer",
+                children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Save, { size: 16 }),
+                  isMergingPdf ? "\u0110ang gh\xE9p file PDF..." : "Xu\u1EA5t PDF t\u1ED5ng h\u1EE3p th\xE1ng"
+                ]
+              }
+            )
+          ] })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "grid grid-cols-2 md:grid-cols-4 gap-3 mb-6", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "bg-blue-50 border border-blue-100 rounded-xl p-4", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-[11px] font-bold text-blue-700 uppercase tracking-wide", children: "S\u1ED1 tu\u1EA7n b\xE1o c\xE1o" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-2xl font-extrabold text-blue-900 mt-1", children: monthlyReports.length })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "bg-green-50 border border-green-100 rounded-xl p-4", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-[11px] font-bold text-green-700 uppercase tracking-wide", children: "Vi\u1EC7c ho\xE0n th\xE0nh" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-2xl font-extrabold text-green-900 mt-1", children: monthlyReports.reduce((a, r) => a + ((r.completedTasksSnapshot || []).length), 0) })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "bg-amber-50 border border-amber-100 rounded-xl p-4", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-[11px] font-bold text-amber-700 uppercase tracking-wide", children: "Vi\u1EC7c chuy\u1EC3n ti\u1EBFp" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-2xl font-extrabold text-amber-900 mt-1", children: monthlyReports.reduce((a, r) => a + ((r.continuedTasksSnapshot || []).length), 0) })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "bg-red-50 border border-red-100 rounded-xl p-4", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-[11px] font-bold text-red-700 uppercase tracking-wide", children: "\u0110\xE3 \u0111\xE1nh gi\xE1" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { className: "text-2xl font-extrabold text-red-900 mt-1", children: [
+              monthlyReports.filter((r) => r.directorRating).length,
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "text-sm font-bold text-red-400", children: ["/", monthlyReports.length] })
+            ] })
+          ] })
+        ] }),
+        monthlyReports.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "text-center py-12 text-gray-400 italic bg-gray-50 rounded-xl border border-dashed border-gray-200", children: "Th\xE1ng n\xE0y ch\u01B0a c\xF3 b\xE1o c\xE1o tu\u1EA7n n\xE0o \u0111\u01B0\u1EE3c l\u01B0u. H\xE3y v\xE0o tab \"B\xE1o c\xE1o c\xF4ng vi\u1EC7c nhanh\" \u0111\u1EC3 l\u01B0u b\xE1o c\xE1o tu\u1EA7n." }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "overflow-x-auto rounded-xl border border-gray-200 shadow-2xs", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("table", { className: "w-full text-left border-collapse bg-white text-sm", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("thead", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", { className: "bg-gray-50 border-b border-gray-200 text-gray-700 font-semibold", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { className: "p-4 w-16 text-center", children: "Tu\u1EA7n" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { className: "p-4", children: "T\xEAn tu\u1EA7n b\xE1o c\xE1o" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { className: "p-4", children: "Ng\xE0y l\u1EADp" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { className: "p-4 text-center", children: "Ho\xE0n th\xE0nh" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { className: "p-4", children: "Tr\u1EA1ng th\xE1i \u0111\xE1nh gi\xE1" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { className: "p-4 text-center", children: "PDF ri\xEAng" })
+          ] }) }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("tbody", { className: "divide-y divide-gray-200 text-gray-600 font-medium", children: monthlyReports.map((report, idx) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", { className: "hover:bg-gray-50/50 transition-colors", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { className: "p-4 text-center", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "inline-flex items-center justify-center w-7 h-7 rounded-full bg-red-100 text-red-700 font-extrabold text-xs", children: idx + 1 }) }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { className: "p-4 font-bold text-gray-900", children: report.weekName }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { className: "p-4 text-xs text-gray-500", children: format(new Date(report.createdAt), "dd/MM/yyyy HH:mm") }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { className: "p-4 text-center font-bold text-green-700", children: (report.completedTasksSnapshot || []).length }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { className: "p-4", children: report.directorRating ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col gap-1", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider w-fit ${report.directorRating === "Xu\u1EA5t s\u1EAFc" ? "bg-green-100 text-green-800" : report.directorRating === "T\u1ED1t" ? "bg-blue-100 text-blue-800" : report.directorRating === "\u0110\u1EA1t y\xEAu c\u1EA7u" ? "bg-teal-100 text-teal-800" : report.directorRating === "C\u1EA7n c\u1ED1 g\u1EAFng" ? "bg-amber-100 text-amber-800" : "bg-red-100 text-red-800"}`, children: report.directorRating }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-[10px] font-bold text-green-700 uppercase tracking-wide", children: "\u2705 \u0110\xE3 \u0111\xE1nh gi\xE1" })
+            ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-yellow-100 text-yellow-800", children: "\u23F3 Ch\u1EDD \u0111\xE1nh gi\xE1" }) }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { className: "p-4 text-center", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+              "button",
+              {
+                onClick: () => handleExportPdf(report),
+                className: "px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 rounded-lg text-xs font-bold transition-colors cursor-pointer",
+                title: "Xu\u1EA5t PDF ri\xEAng tu\u1EA7n n\xE0y",
+                children: "\u{1F4C4} PDF"
+              }
+            ) })
+          ] }, report.id)) })
+        ] }) }),
+        monthlyReports.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-gray-500 italic mt-4", children: "\u{1F4A1} File PDF t\u1ED5ng h\u1EE3p g\u1ED3m: trang b\xEDa t\u1ED5ng quan + m\u1ED7i tu\u1EA7n m\u1ED9t trang ri\xEAng bi\u1EC7t + trang k\xFD duy\u1EC7t cu\u1ED1i c\xF9ng." })
       ] }),
       activeTab === "checklist" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex justify-between items-center border-b pb-4 mb-6", children: [
@@ -24266,7 +24561,7 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
             )
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "bg-red-50/40 border border-red-200 rounded-2xl p-5 shadow-xs", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", { className: "font-extrabold text-red-900 text-sm uppercase mb-4 flex items-center gap-2", children: "\u{1F451} \u0110\xE1nh gi\xE1 m\u1EE9c \u0111\u1ED9 ho\xE0n th\xE0nh c\u1EE7a Ban Gi\xE1m \u0110\u1ED1c" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", { className: "font-extrabold text-red-900 text-sm uppercase mb-4 flex items-center gap-2", children: "\u{1F451} \u0110\xE1nh gi\xE1 m\u1EE9c \u0111\u1ED9 ho\xE0n th\xE0nh c\u1EE7a C\u1EA5p Qu\u1EA3n l\xFD / Ban Gi\xE1m \u0110\u1ED1c" }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "mb-4", children: [
               /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "block text-xs font-bold text-red-850 mb-2 uppercase tracking-wide", children: "Ph\xE2n lo\u1EA1i m\u1EE9c \u0111\u1ED9 ho\xE0n th\xE0nh:" }),
               /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "flex flex-wrap gap-2", children: ["Xu\u1EA5t s\u1EAFc", "T\u1ED1t", "\u0110\u1EA1t y\xEAu c\u1EA7u", "C\u1EA7n c\u1ED1 g\u1EAFng", "Ch\u01B0a \u0111\u1EA1t"].map((rating) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
@@ -24300,7 +24595,7 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
                 className: "px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg text-xs transition-all shadow-sm active:scale-95 flex items-center gap-1.5 cursor-pointer",
                 children: [
                   /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Save, { size: 14 }),
-                  " C\u1EADp nh\u1EADt \u0111\xE1nh gi\xE1 BG\u0110"
+                  " C\u1EADp nh\u1EADt \u0111\xE1nh gi\xE1"
                 ]
               }
             ) })
