@@ -20023,8 +20023,14 @@
   var app = initializeApp(firebaseConfig);
   var db = getDatabase(app);
   var currentCustomApiKey = "";
+  var currentAiProvider = "gemini";
+  var currentKimiApiKey = "";
+  var currentKimiEndpoint = "https://trietkimi.idecocorp2015.workers.dev/api/chat/completions";
   try {
     currentCustomApiKey = localStorage.getItem("backup_gemini_api_key") || "";
+    currentAiProvider = localStorage.getItem("ideco_ai_provider") || "gemini";
+    currentKimiApiKey = localStorage.getItem("ideco_kimi_api_key") || "";
+    currentKimiEndpoint = localStorage.getItem("ideco_kimi_endpoint") || currentKimiEndpoint;
   } catch (e) {
     console.warn("localStorage is not available:", e);
   }
@@ -20048,6 +20054,22 @@
     });
   } catch (err) {
     console.error("Failed to initialize remote API key listener:", err);
+  }
+  try {
+    onValue(ref(db, "settings/api/provider"), (snap) => {
+      currentAiProvider = snap.exists() ? snap.val() || "gemini" : "gemini";
+      try { localStorage.setItem("ideco_ai_provider", currentAiProvider); } catch (e) {}
+    });
+    onValue(ref(db, "settings/api/kimiKey"), (snap) => {
+      currentKimiApiKey = snap.exists() ? snap.val() || "" : "";
+      try { localStorage.setItem("ideco_kimi_api_key", currentKimiApiKey); } catch (e) {}
+    });
+    onValue(ref(db, "settings/api/kimiEndpoint"), (snap) => {
+      currentKimiEndpoint = snap.exists() ? snap.val() || "https://trietkimi.idecocorp2015.workers.dev/api/chat/completions" : "https://trietkimi.idecocorp2015.workers.dev/api/chat/completions";
+      try { localStorage.setItem("ideco_kimi_endpoint", currentKimiEndpoint); } catch (e) {}
+    });
+  } catch (err) {
+    console.error("Failed to initialize Kimi settings listeners:", err);
   }
   var sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   var callGeminiDirectClientSide = async (params) => {
@@ -20152,25 +20174,156 @@ M\xE1ch nh\u1ECF ch\u1EA9n \u0111o\xE1n l\u1ED7i: N\u1EBFu m\xE3 l\u1ED7i nh\u1E
 Chi ti\u1EBFt l\u1ED7i cu\u1ED1i c\xF9ng: ${(lastFallbackError == null ? void 0 : lastFallbackError.message) || lastFallbackError}`
     );
   };
+  var normalizeAiPrompt = (contents) => {
+    if (typeof contents === "string") return contents;
+    if (Array.isArray(contents)) {
+      return contents.map((item) => {
+        if (typeof item === "string") return item;
+        if (item && Array.isArray(item.parts)) return item.parts.map((p) => p && p.text ? p.text : "").join("\n");
+        return JSON.stringify(item);
+      }).join("\n");
+    }
+    return JSON.stringify(contents);
+  };
+  var callKimiDirectClientSide = async (params) => {
+    const apiKey = (currentKimiApiKey || "").trim();
+    let endpoint = (currentKimiEndpoint || "https://trietkimi.idecocorp2015.workers.dev/api/chat/completions").trim();
+    // Tự sửa endpoint cũ /api sang route OpenAI-compatible hợp lệ của Worker.
+    endpoint = endpoint.replace(/\/+$/, "");
+    if (endpoint.endsWith("/api")) endpoint += "/chat/completions";
+    if (!apiKey) throw new Error("Chưa cấu hình Kimi API Key trong mục Cài đặt AI.");
+    if (!endpoint) throw new Error("Chưa cấu hình địa chỉ Kimi API.");
+    const prompt = normalizeAiPrompt(params.contents);
+    const bodyPayload = {
+      model: params.kimiModel || "kimi-k3",
+      messages: [{ role: "user", content: prompt }],
+      prompt,
+      contents: prompt,
+      temperature: params.config && params.config.temperature != null ? params.config.temperature : 0.3,
+      max_tokens: params.config && params.config.maxOutputTokens ? params.config.maxOutputTokens : 4096,
+      stream: false
+    };
+    // Không gửi X-API-Key vì Cloudflare Worker hiện không cho phép header này trong CORS preflight.
+    // Chỉ dùng Authorization Bearer để tương thích với trình duyệt, kể cả khi mở ứng dụng bằng file://.
+    let response;
+    try {
+      response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          ...bodyPayload,
+          apiKey,
+          api_key: apiKey
+        })
+      });
+    } catch (networkError) {
+      // Phương án dự phòng không tạo CORS preflight: gửi text/plain và đặt khóa trong body.
+      // Worker có thể đọc body JSON bằng request.text() hoặc request.json().
+      try {
+        response = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain;charset=UTF-8" },
+          body: JSON.stringify({
+            ...bodyPayload,
+            apiKey,
+            api_key: apiKey,
+            authorization: `Bearer ${apiKey}`
+          })
+        });
+      } catch (fallbackError) {
+        throw new Error("Không thể kết nối Kimi API do cấu hình CORS của Cloudflare Worker. Worker cần cho phép Origin *, method POST/OPTIONS và các header Content-Type, Authorization. Chi tiết: " + ((fallbackError && fallbackError.message) || (networkError && networkError.message) || "Failed to fetch"));
+      }
+    }
+    const rawText = await response.text();
+    if (!response.ok) {
+      if (response.status === 404) {
+        throw new Error(`Kimi API lỗi 404: Sai route. Endpoint đúng phải kết thúc bằng /api/chat/completions. Phản hồi: ${rawText}`);
+      }
+      throw new Error(`Kimi API lỗi ${response.status}: ${rawText}`);
+    }
+    const extractTextFromKimiObject = (data) => data && (data.text || data.response || data.result || data.answer || data.output_text ||
+      (data.output && (data.output.text || data.output.content)) ||
+      (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) ||
+      (data.choices && data.choices[0] && data.choices[0].delta && data.choices[0].delta.content) ||
+      (data.choices && data.choices[0] && data.choices[0].text) ||
+      (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0] && data.candidates[0].content.parts[0].text));
+    let data;
+    try {
+      data = JSON.parse(rawText);
+      if (data && data.error) {
+        const apiError = data.error.message || JSON.stringify(data.error);
+        throw new Error(`Kimi API báo lỗi: ${apiError}`);
+      }
+      const jsonText = extractTextFromKimiObject(data);
+      if (jsonText != null) return { text: typeof jsonText === "string" ? jsonText : JSON.stringify(jsonText) };
+    } catch (jsonError) {
+      if (jsonError && /^Kimi API báo lỗi:/.test(jsonError.message || "")) throw jsonError;
+    }
+    // Hỗ trợ phản hồi SSE/OpenAI streaming: data: {...} và data: [DONE]
+    if (/^\s*data:/m.test(rawText)) {
+      let combinedText = "";
+      const lines = rawText.split(/\r?\n/);
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data:")) continue;
+        const payloadText = trimmed.slice(5).trim();
+        if (!payloadText || payloadText === "[DONE]") continue;
+        let chunk;
+        try { chunk = JSON.parse(payloadText); } catch (e) { continue; }
+        if (chunk && chunk.error) {
+          const message = chunk.error.message || JSON.stringify(chunk.error);
+          const code = chunk.error.code ? ` (${chunk.error.code})` : "";
+          throw new Error(`Kimi API báo lỗi${code}: ${message}`);
+        }
+        const chunkText = extractTextFromKimiObject(chunk);
+        if (chunkText != null) combinedText += typeof chunkText === "string" ? chunkText : JSON.stringify(chunkText);
+      }
+      if (combinedText.trim()) return { text: combinedText.trim() };
+    }
+    throw new Error("Kimi API đã phản hồi nhưng không tìm thấy nội dung phân tích hợp lệ. Phản hồi nhận được: " + rawText.slice(0, 800));
+  };
+  var callAiProvider = async (params) => {
+    if (currentAiProvider !== "kimi") return callGeminiDirectClientSide(params);
+    try {
+      return await callKimiDirectClientSide(params);
+    } catch (kimiError) {
+      const kimiMessage = String((kimiError && kimiError.message) || kimiError || "");
+      const isTemporaryKimiUnavailable = /Kimi API lỗi 503|No available channel|Upstream tạm thời không khả dụng/i.test(kimiMessage);
+      if (!isTemporaryKimiUnavailable) throw kimiError;
+      console.warn("Kimi tạm thời không có kênh phục vụ. Tự động chuyển sang Gemini để tiếp tục phân tích kế hoạch.", kimiError);
+      try {
+        const geminiResult = await callGeminiDirectClientSide(params);
+        return {
+          ...geminiResult,
+          providerFallback: "gemini",
+          providerWarning: "Kimi tạm thời không khả dụng nên hệ thống đã tự động dùng Gemini để hoàn tất phân tích."
+        };
+      } catch (geminiError) {
+        throw new Error(
+          "Kimi tạm thời không có kênh phục vụ (503), đồng thời Gemini dự phòng cũng không chạy được. " +
+          "Vui lòng kiểm tra Gemini API Key trong Cài đặt AI hoặc thử lại sau. Chi tiết Kimi: " + kimiMessage +
+          "; Chi tiết Gemini: " + String((geminiError && geminiError.message) || geminiError || "")
+        );
+      }
+    }
+  };
   var callAiWithRetry = async (params, maxRetries = 2) => {
     let lastError;
     for (let i = 0; i < maxRetries; i++) {
       try {
-        return await callGeminiDirectClientSide(params);
+        return await callAiProvider(params);
       } catch (error2) {
         lastError = error2;
         if (i < maxRetries - 1) {
           console.warn(`AI Service request failed, retrying in 1500ms... (Attempt ${i + 1}/${maxRetries})`);
           await sleep(1500);
-          continue;
         }
       }
     }
-    try {
-      return await callGeminiDirectClientSide(params);
-    } catch (fallbackError) {
-      throw lastError;
-    }
+    throw lastError;
   };
   var evaluateObjective = async (objective) => {
     var _a;
@@ -21587,6 +21740,15 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
         return "";
       }
     });
+    const [aiProvider, setAiProvider] = (0, import_react3.useState)(() => {
+      try { return localStorage.getItem("ideco_ai_provider") || "gemini"; } catch (e) { return "gemini"; }
+    });
+    const [kimiApiKey, setKimiApiKey] = (0, import_react3.useState)(() => {
+      try { return localStorage.getItem("ideco_kimi_api_key") || "sk-gckulhIgEB9kZ8nwfexpoQnHfheRyAPJtXiu5QpgO6rWJEWd"; } catch (e) { return "sk-gckulhIgEB9kZ8nwfexpoQnHfheRyAPJtXiu5QpgO6rWJEWd"; }
+    });
+    const [kimiEndpoint, setKimiEndpoint] = (0, import_react3.useState)(() => {
+      try { return localStorage.getItem("ideco_kimi_endpoint") || "https://trietkimi.idecocorp2015.workers.dev/api/chat/completions"; } catch (e) { return "https://trietkimi.idecocorp2015.workers.dev/api/chat/completions"; }
+    });
     const [isSavingKey, setIsSavingKey] = (0, import_react3.useState)(false);
     (0, import_react3.useEffect)(() => {
       const loadContent = async () => {
@@ -21618,11 +21780,16 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
     (0, import_react3.useEffect)(() => {
       const loadApiKey = async () => {
         try {
-          const apiRef = ref(db, "settings/api/geminiKey");
-          const snap = await get(apiRef);
-          if (snap.exists()) {
-            setBackupApiKey(snap.val() || "");
-          }
+          const [geminiSnap, providerSnap, kimiKeySnap, kimiEndpointSnap] = await Promise.all([
+            get(ref(db, "settings/api/geminiKey")),
+            get(ref(db, "settings/api/provider")),
+            get(ref(db, "settings/api/kimiKey")),
+            get(ref(db, "settings/api/kimiEndpoint"))
+          ]);
+          if (geminiSnap.exists()) setBackupApiKey(geminiSnap.val() || "");
+          if (providerSnap.exists()) setAiProvider(providerSnap.val() || "gemini");
+          if (kimiKeySnap.exists()) setKimiApiKey(kimiKeySnap.val() || "");
+          if (kimiEndpointSnap.exists()) setKimiEndpoint(kimiEndpointSnap.val() || "https://trietkimi.idecocorp2015.workers.dev/api/chat/completions");
         } catch (err) {
           console.error("Error loading backup key from firebase:", err);
         }
@@ -21701,13 +21868,25 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
       setIsSavingKey(true);
       try {
         const trimmedKey = backupApiKey.trim();
-        const apiRef = ref(db, "settings/api/geminiKey");
-        await set(apiRef, trimmedKey);
+        const trimmedKimiKey = kimiApiKey.trim();
+        const trimmedEndpoint = kimiEndpoint.trim() || "https://trietkimi.idecocorp2015.workers.dev/api/chat/completions";
+        await Promise.all([
+          set(ref(db, "settings/api/geminiKey"), trimmedKey),
+          set(ref(db, "settings/api/provider"), aiProvider),
+          set(ref(db, "settings/api/kimiKey"), trimmedKimiKey),
+          set(ref(db, "settings/api/kimiEndpoint"), trimmedEndpoint)
+        ]);
+        currentCustomApiKey = trimmedKey;
+        currentAiProvider = aiProvider;
+        currentKimiApiKey = trimmedKimiKey;
+        currentKimiEndpoint = trimmedEndpoint;
         try {
           localStorage.setItem("backup_gemini_api_key", trimmedKey);
-        } catch (e) {
-        }
-        alert("\u0110\xE3 l\u01B0u API KEY m\u1EDBi v\xE0 \u0111\u1ED3ng b\u1ED9 th\u1EDDi gian th\u1EF1c th\xE0nh c\xF4ng!");
+          localStorage.setItem("ideco_ai_provider", aiProvider);
+          localStorage.setItem("ideco_kimi_api_key", trimmedKimiKey);
+          localStorage.setItem("ideco_kimi_endpoint", trimmedEndpoint);
+        } catch (e) {}
+        alert(`Đã lưu cấu hình AI thành công. Model đang sử dụng: ${aiProvider === "kimi" ? "Kimi AI" : "Gemini AI"}.`);
       } catch (err) {
         console.error("Error saving API Key to firebase:", err);
         alert("C\xF3 l\u1ED7i x\u1EA3y ra khi l\u01B0u API Key!");
@@ -21831,9 +22010,9 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "bg-white rounded-2xl shadow-sm border border-gray-200 p-6", children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h2", { className: "text-lg font-bold text-gray-900 mb-1 flex items-center gap-2", children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Key, { className: "text-purple-600", size: 22 }),
-            " C\xE0i \u0110\u1EB7t API D\u1EF1 Ph\xF2ng (Huy\u1EC1n AI)"
+            " C\xE0i \u0110\u1EB7t AI (Gemini / Kimi)"
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-gray-500 mb-6", children: "\u0110i\u1EC1u ch\u1EC9nh kh\xF3a API Gemini s\u01A1 cua c\u1EE7a h\u1EC7 th\u1ED1ng \u0111\u1EC3 tr\xE1nh l\u1ED7i qu\xE1 t\u1EA3i quota / 503." }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-gray-500 mb-6", children: "Chọn model AI dùng để phân tích kế hoạch và cấu hình API tương ứng. Thiết lập được đồng bộ cho toàn hệ thống." }),
           !isPasswordVerified ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "space-y-4 max-w-md", children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", { className: "block text-sm font-medium text-gray-700", children: "Nh\u1EADp m\u1EADt kh\u1EA9u c\u1EA5u tr\u1ECB \u0111\u1EC3 truy c\u1EADp c\xE0i \u0111\u1EB7t API" }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex gap-2", children: [
@@ -21873,7 +22052,14 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
               ] })
             ] }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", { className: "block text-sm font-semibold text-gray-700 mb-2", children: "Gemini API KEY M\u1EDBi" }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", { className: "block text-sm font-semibold text-gray-700 mb-2", children: "Chọn model AI phân tích kế hoạch" }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", { value: aiProvider, onChange: (e) => setAiProvider(e.target.value), className: "w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none bg-white font-semibold text-gray-800", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "gemini", children: "Gemini AI" }),
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "kimi", children: "Kimi AI - IDECO Worker" })
+              ] })
+            ] }),
+            aiProvider === "gemini" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", { className: "block text-sm font-semibold text-gray-700 mb-2", children: "Gemini API KEY" }),
               /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
                 "input",
                 {
@@ -21884,7 +22070,17 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
                   className: "w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none font-mono text-sm text-gray-800 shadow-inner bg-gray-50"
                 }
               ),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-gray-400 mt-2", children: "L\u01B0u \xFD: API Key ph\u1EA3i \u1EDF \u0111\u1ECBnh tr\u1EA1ng th\xE1i Active h\u1EE3p l\u1EC7 tr\xEAn n\u1EC1n t\u1EA3ng Google AI Studio." })
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-gray-400 mt-2", children: "API Key Gemini phải đang hoạt động trên Google AI Studio." })
+            ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "space-y-4", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", { className: "block text-sm font-semibold text-gray-700 mb-2", children: "Kimi API Endpoint" }),
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { type: "url", value: kimiEndpoint, onChange: (e) => setKimiEndpoint(e.target.value), placeholder: "https://.../api", className: "w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none font-mono text-sm text-gray-800 shadow-inner bg-gray-50" })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", { className: "block text-sm font-semibold text-gray-700 mb-2", children: "Kimi API KEY" }),
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { type: "password", value: kimiApiKey, onChange: (e) => setKimiApiKey(e.target.value), placeholder: "Nhập Kimi API Key...", className: "w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none font-mono text-sm text-gray-800 shadow-inner bg-gray-50" }),
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-gray-400 mt-2", children: "Kimi AI sẽ được dùng cho toàn bộ chức năng Huyền phân tích kế hoạch khi model này được chọn." })
+              ] })
             ] }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex justify-end gap-3 border-t pt-5", children: [
               /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
@@ -22008,14 +22204,16 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
     const showAlert = (title, message2, onConfirm) => {
       setModalConfig({ isOpen: true, title, message: message2, type: "alert", onConfirm });
     };
-    const showConfirm = (title, message2, onConfirm, onCancel) => {
+    const showConfirm = (title, message2, onConfirm, onCancel, confirmText = "Vẫn lưu", cancelText = "Hủy / Sửa lại") => {
       setModalConfig({
         isOpen: true,
         title,
         message: message2,
         type: "confirm",
         onConfirm,
-        onCancel
+        onCancel,
+        confirmText,
+        cancelText
       });
     };
     const showPrompt = (title, message2, onConfirm, onCancel) => {
@@ -22261,7 +22459,18 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
           planToSave.evaluationUpdatedAt = (/* @__PURE__ */ new Date()).toISOString();
         }
         await set(ref(db, `weekly_plans/${plan.id}`), planToSave);
-        showAlert("Th\xE0nh c\xF4ng", "L\u01B0u k\u1EBF ho\u1EA1ch th\xE0nh c\xF4ng!", onNavigateBack);
+        showConfirm(
+          "Đã lưu kế hoạch thành công",
+          "Bạn nên hỏi Huyền hoặc Mr Dũng AI để phân tích lại kế hoạch cho chuẩn hơn nhé.\n\nBạn có thể copy toàn bộ bảng và dán vào IDECO BOT tại mục Kiểm tra kế hoạch, hoặc chọn phần 'Huyền Trợ lý GĐ Phân tích' trong ứng dụng này để xem các công việc đã đủ cụ thể, có thực sự phục vụ Mục tiêu kinh doanh và Mục tiêu hoàn thành công việc tuần này hay chưa. Nếu chưa phù hợp, hãy chỉnh lại kế hoạch.\n\nBiết lập kế hoạch và kiểm soát tốt nghĩa là bạn đang nâng cao năng lực làm việc; kết quả đạt được cũng sẽ tốt hơn cho chính bạn đấy!",
+          () => {
+            handlePlanAiFeedback();
+          },
+          () => {
+            onNavigateBack();
+          },
+          "Đồng ý",
+          "Hủy"
+        );
       } catch (error2) {
         console.error("Error saving plan:", error2);
         showAlert("L\u1ED7i", "C\xF3 l\u1ED7i x\u1EA3y ra khi l\u01B0u k\u1EBF ho\u1EA1ch.");
@@ -24242,7 +24451,7 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
                 closeModal();
               },
               className: "px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors font-medium",
-              children: "H\u1EE7y / S\u1EEDa l\u1EA1i"
+              children: modalConfig.cancelText || "H\u1EE7y / S\u1EEDa l\u1EA1i"
             }
           ),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
@@ -24253,7 +24462,7 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
                 closeModal();
               },
               className: "px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg transition-colors font-medium",
-              children: modalConfig.type === "confirm" ? "V\u1EABn l\u01B0u" : "\u0110\xF3ng"
+              children: modalConfig.type === "confirm" ? modalConfig.confirmText || "V\u1EABn l\u01B0u" : "\u0110\xF3ng"
             }
           )
         ] })
