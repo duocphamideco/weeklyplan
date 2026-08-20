@@ -15,6 +15,23 @@
   .animate-blob { animation: blob 7s infinite; }
   .animation-delay-2000 { animation-delay: 2s; }
   .animation-delay-4000 { animation-delay: 4s; }
+
+  /* IDECO: dong nhac chay trong popup cho AI phan tich */
+  @keyframes ideco-ai-guidance-marquee {
+    0% { transform: translateX(0); }
+    100% { transform: translateX(-100%); }
+  }
+  .ideco-ai-guidance-track {
+    display: inline-block;
+    min-width: max-content;
+    padding-left: 100%;
+    white-space: nowrap;
+    will-change: transform;
+    animation: ideco-ai-guidance-marquee 34s linear infinite;
+  }
+  @media (max-width: 640px) {
+    .ideco-ai-guidance-track { animation-duration: 38s; }
+  }
   [contenteditable][data-placeholder]:empty:before {
     content: attr(data-placeholder);
     color: #9ca3af;
@@ -20010,6 +20027,14 @@
   // merged_input.tsx
   var import_jsx_runtime = __toESM(require_jsx_runtime());
   var EMBEDDED_GEMINI_API_KEY = "PASTE_YOUR_GEMINI_API_KEY_HERE";
+  var CONFIG_VERSION = 7;
+  var EMBEDDED_BAI_API_KEY_F01 = "sk-i2zxo8byhg6uetizhlz4x6ikq80f5bgs";
+  var DEFAULT_BAI_BASE_URL = "https://api.b.ai/v1";
+  var DEFAULT_BAI_MODEL = "deepseek-v4-flash";
+  var DEFAULT_DEEPSEEK_BASE_URL = "https://api.deepseek.com";
+  var DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-flash";
+  var DEFAULT_GROK_BASE_URL = "https://api.x.ai/v1";
+  var DEFAULT_GROK_MODEL = "grok-4.5";
   var firebaseConfig = {
     apiKey: "AIzaSyCNsKk3vZSbfOcbZv1dCHISTXep2njHOiM",
     authDomain: "kehoachnew-532cf.firebaseapp.com",
@@ -20023,14 +20048,39 @@
   var app = initializeApp(firebaseConfig);
   var db = getDatabase(app);
   var currentCustomApiKey = "";
-  var currentAiProvider = "gemini";
+  var currentAiProvider = "bai";
+  var currentBaiApiKeys = [EMBEDDED_BAI_API_KEY_F01, "", ""];
+  var currentBaiBaseUrl = DEFAULT_BAI_BASE_URL;
+  var currentBaiModel = DEFAULT_BAI_MODEL;
+  var currentDeepseekApiKey = "";
+  var currentGrokApiKey = "";
   var currentKimiApiKey = "";
   var currentKimiEndpoint = "https://trietkimi.idecocorp2015.workers.dev/api/chat/completions";
   try {
     currentCustomApiKey = localStorage.getItem("backup_gemini_api_key") || "";
-    currentAiProvider = localStorage.getItem("ideco_ai_provider") || "gemini";
+    const localConfigVersion = Number(localStorage.getItem("ideco_ai_config_version") || 0);
+    currentBaiApiKeys = [
+      localStorage.getItem("ideco_bai_api_key_f01") || EMBEDDED_BAI_API_KEY_F01,
+      localStorage.getItem("ideco_bai_api_key_f02") || "",
+      localStorage.getItem("ideco_bai_api_key_f03") || ""
+    ];
+    currentBaiBaseUrl = localStorage.getItem("ideco_bai_base_url") || DEFAULT_BAI_BASE_URL;
+    currentBaiModel = localStorage.getItem("ideco_bai_model") || DEFAULT_BAI_MODEL;
+    currentDeepseekApiKey = localStorage.getItem("ideco_deepseek_api_key") || "";
+    currentGrokApiKey = localStorage.getItem("ideco_grok_api_key") || "";
     currentKimiApiKey = localStorage.getItem("ideco_kimi_api_key") || "";
     currentKimiEndpoint = localStorage.getItem("ideco_kimi_endpoint") || currentKimiEndpoint;
+    if (localConfigVersion < CONFIG_VERSION) {
+      // V7: chuyển cấu hình mặc định cũ (Kimi/Gemini) sang B.AI DeepSeek-V4-Flash.
+      currentAiProvider = "bai";
+      localStorage.setItem("ideco_ai_provider", "bai");
+      localStorage.setItem("ideco_ai_config_version", String(CONFIG_VERSION));
+      localStorage.setItem("ideco_bai_api_key_f01", currentBaiApiKeys[0] || EMBEDDED_BAI_API_KEY_F01);
+      localStorage.setItem("ideco_bai_base_url", currentBaiBaseUrl);
+      localStorage.setItem("ideco_bai_model", currentBaiModel);
+    } else {
+      currentAiProvider = localStorage.getItem("ideco_ai_provider") || "bai";
+    }
   } catch (e) {
     console.warn("localStorage is not available:", e);
   }
@@ -20040,16 +20090,10 @@
       if (snap.exists()) {
         const val = snap.val() || "";
         currentCustomApiKey = val;
-        try {
-          localStorage.setItem("backup_gemini_api_key", val);
-        } catch (e) {
-        }
+        try { localStorage.setItem("backup_gemini_api_key", val); } catch (e) {}
       } else {
         currentCustomApiKey = "";
-        try {
-          localStorage.removeItem("backup_gemini_api_key");
-        } catch (e) {
-        }
+        try { localStorage.removeItem("backup_gemini_api_key"); } catch (e) {}
       }
     });
   } catch (err) {
@@ -20057,8 +20101,41 @@
   }
   try {
     onValue(ref(db, "settings/api/provider"), (snap) => {
-      currentAiProvider = snap.exists() ? snap.val() || "gemini" : "gemini";
+      currentAiProvider = snap.exists() ? snap.val() || "bai" : "bai";
       try { localStorage.setItem("ideco_ai_provider", currentAiProvider); } catch (e) {}
+    });
+    onValue(ref(db, "settings/api/configVersion"), (snap) => {
+      if (snap.exists()) {
+        try { localStorage.setItem("ideco_ai_config_version", String(snap.val() || CONFIG_VERSION)); } catch (e) {}
+      }
+    });
+    onValue(ref(db, "settings/api/baiKeyF01"), (snap) => {
+      currentBaiApiKeys[0] = snap.exists() ? snap.val() || EMBEDDED_BAI_API_KEY_F01 : EMBEDDED_BAI_API_KEY_F01;
+      try { localStorage.setItem("ideco_bai_api_key_f01", currentBaiApiKeys[0]); } catch (e) {}
+    });
+    onValue(ref(db, "settings/api/baiKeyF02"), (snap) => {
+      currentBaiApiKeys[1] = snap.exists() ? snap.val() || "" : "";
+      try { localStorage.setItem("ideco_bai_api_key_f02", currentBaiApiKeys[1]); } catch (e) {}
+    });
+    onValue(ref(db, "settings/api/baiKeyF03"), (snap) => {
+      currentBaiApiKeys[2] = snap.exists() ? snap.val() || "" : "";
+      try { localStorage.setItem("ideco_bai_api_key_f03", currentBaiApiKeys[2]); } catch (e) {}
+    });
+    onValue(ref(db, "settings/api/baiBaseUrl"), (snap) => {
+      currentBaiBaseUrl = snap.exists() ? snap.val() || DEFAULT_BAI_BASE_URL : DEFAULT_BAI_BASE_URL;
+      try { localStorage.setItem("ideco_bai_base_url", currentBaiBaseUrl); } catch (e) {}
+    });
+    onValue(ref(db, "settings/api/baiModel"), (snap) => {
+      currentBaiModel = snap.exists() ? snap.val() || DEFAULT_BAI_MODEL : DEFAULT_BAI_MODEL;
+      try { localStorage.setItem("ideco_bai_model", currentBaiModel); } catch (e) {}
+    });
+    onValue(ref(db, "settings/api/deepseekKey"), (snap) => {
+      currentDeepseekApiKey = snap.exists() ? snap.val() || "" : "";
+      try { localStorage.setItem("ideco_deepseek_api_key", currentDeepseekApiKey); } catch (e) {}
+    });
+    onValue(ref(db, "settings/api/grokKey"), (snap) => {
+      currentGrokApiKey = snap.exists() ? snap.val() || "" : "";
+      try { localStorage.setItem("ideco_grok_api_key", currentGrokApiKey); } catch (e) {}
     });
     onValue(ref(db, "settings/api/kimiKey"), (snap) => {
       currentKimiApiKey = snap.exists() ? snap.val() || "" : "";
@@ -20068,8 +20145,29 @@
       currentKimiEndpoint = snap.exists() ? snap.val() || "https://trietkimi.idecocorp2015.workers.dev/api/chat/completions" : "https://trietkimi.idecocorp2015.workers.dev/api/chat/completions";
       try { localStorage.setItem("ideco_kimi_endpoint", currentKimiEndpoint); } catch (e) {}
     });
+    (async () => {
+      try {
+        const [versionSnap, baiKeySnap] = await Promise.all([
+          get(ref(db, "settings/api/configVersion")),
+          get(ref(db, "settings/api/baiKeyF01"))
+        ]);
+        const remoteVersion = versionSnap.exists() ? Number(versionSnap.val() || 0) : 0;
+        if (remoteVersion < CONFIG_VERSION) {
+          const migratedBaiKey = baiKeySnap.exists() && baiKeySnap.val() ? String(baiKeySnap.val()) : EMBEDDED_BAI_API_KEY_F01;
+          await Promise.all([
+            set(ref(db, "settings/api/configVersion"), CONFIG_VERSION),
+            set(ref(db, "settings/api/provider"), "bai"),
+            set(ref(db, "settings/api/baiKeyF01"), migratedBaiKey),
+            set(ref(db, "settings/api/baiBaseUrl"), DEFAULT_BAI_BASE_URL),
+            set(ref(db, "settings/api/baiModel"), DEFAULT_BAI_MODEL)
+          ]);
+        }
+      } catch (migrationError) {
+        console.warn("Không thể migrate cấu hình AI lên V7, sẽ tiếp tục dùng cấu hình local hiện có:", migrationError);
+      }
+    })();
   } catch (err) {
-    console.error("Failed to initialize Kimi settings listeners:", err);
+    console.error("Failed to initialize AI settings listeners:", err);
   }
   var sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   var callGeminiDirectClientSide = async (params) => {
@@ -20185,6 +20283,140 @@ Chi ti\u1EBFt l\u1ED7i cu\u1ED1i c\xF9ng: ${(lastFallbackError == null ? void 0 
     }
     return JSON.stringify(contents);
   };
+  var normalizeOpenAiBaseUrl = (baseUrl, defaultBaseUrl) => {
+    let base = String(baseUrl || defaultBaseUrl || "").trim().replace(/\/+$/, "");
+    if (!base) return "";
+    return base;
+  };
+  var extractOpenAiCompatibleText = (rawText, providerName) => {
+    const raw = String(rawText || "");
+    try {
+      const data = JSON.parse(raw);
+      if (data && data.error) {
+        const msg = data.error.message || JSON.stringify(data.error);
+        throw new Error(`${providerName} API báo lỗi: ${msg}`);
+      }
+      const content = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+      if (content != null) return typeof content === "string" ? content : JSON.stringify(content);
+      const direct = data && (data.text || data.response || data.output_text);
+      if (direct != null) return typeof direct === "string" ? direct : JSON.stringify(direct);
+    } catch (jsonError) {
+      if (jsonError && new RegExp(`^${providerName} API báo lỗi:`).test(jsonError.message || "")) throw jsonError;
+    }
+    let combined = "";
+    if (/^\s*data:/m.test(raw)) {
+      for (const line of raw.split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data:")) continue;
+        const payloadText = trimmed.slice(5).trim();
+        if (!payloadText || payloadText === "[DONE]") continue;
+        let chunk;
+        try { chunk = JSON.parse(payloadText); } catch (e) { continue; }
+        if (chunk && chunk.error) {
+          const msg = chunk.error.message || JSON.stringify(chunk.error);
+          throw new Error(`${providerName} API báo lỗi: ${msg}`);
+        }
+        const delta = chunk && chunk.choices && chunk.choices[0] && chunk.choices[0].delta;
+        const piece = delta && delta.content;
+        if (piece != null) combined += typeof piece === "string" ? piece : JSON.stringify(piece);
+      }
+    }
+    if (combined.trim()) return combined.trim();
+    throw new Error(`${providerName} API đã phản hồi nhưng không tìm thấy nội dung hợp lệ: ${raw.slice(0, 800)}`);
+  };
+  var shouldRotateApiKey = (status, message) => {
+    const msg = String(message || "").toLowerCase();
+    return [401, 403, 429].includes(Number(status)) || /quota|credit|credits|insufficient|balance|rate.?limit|too many requests|exceeded|billing/.test(msg);
+  };
+  var callOpenAiCompatibleStreaming = async ({ providerName, baseUrl, apiKeys, model, params, extraBody }) => {
+    const keys = (Array.isArray(apiKeys) ? apiKeys : [apiKeys]).map((k) => String(k || "").trim()).filter(Boolean);
+    if (!keys.length) throw new Error(`Chưa cấu hình API Key cho ${providerName}.`);
+    const base = normalizeOpenAiBaseUrl(baseUrl, "");
+    if (!base) throw new Error(`Chưa cấu hình Base URL cho ${providerName}.`);
+    const endpoint = /\/chat\/completions$/i.test(base) ? base : `${base}/chat/completions`;
+    const prompt = normalizeAiPrompt(params.contents);
+    const payload = {
+      model,
+      messages: [{ role: "user", content: prompt }],
+      stream: true,
+      temperature: params.config && params.config.temperature != null ? params.config.temperature : 0.3,
+      max_tokens: params.config && params.config.maxOutputTokens ? params.config.maxOutputTokens : 4096,
+      ...(params.config && params.config.topP != null ? { top_p: params.config.topP } : {}),
+      ...(extraBody || {})
+    };
+    let lastError = null;
+    for (let i = 0; i < keys.length; i++) {
+      const apiKey = keys[i];
+      try {
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${apiKey}`
+          },
+          body: JSON.stringify(payload)
+        });
+        let rawText = "";
+        if (response.body && typeof response.body.getReader === "function") {
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder("utf-8");
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            rawText += decoder.decode(value, { stream: true });
+          }
+          rawText += decoder.decode();
+        } else {
+          rawText = await response.text();
+        }
+        if (!response.ok) {
+          const err = new Error(`${providerName} API lỗi ${response.status}: ${rawText.slice(0, 1200)}`);
+          err.status = response.status;
+          throw err;
+        }
+        const text = extractOpenAiCompatibleText(rawText, providerName);
+        return { text, provider: providerName, usedKeySlot: `F0${i + 1}` };
+      } catch (err) {
+        lastError = err;
+        const status = err && err.status;
+        const message = String((err && err.message) || err || "");
+        if (i < keys.length - 1 && shouldRotateApiKey(status, message)) {
+          console.warn(`${providerName}: khóa F0${i + 1} gặp lỗi/quota, tự động thử F0${i + 2}.`, err);
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw lastError || new Error(`${providerName} không thể xử lý yêu cầu.`);
+  };
+  var callBaiDirectClientSide = async (params) => {
+    return callOpenAiCompatibleStreaming({
+      providerName: "B.AI",
+      baseUrl: currentBaiBaseUrl || DEFAULT_BAI_BASE_URL,
+      apiKeys: currentBaiApiKeys,
+      model: currentBaiModel || DEFAULT_BAI_MODEL,
+      params
+    });
+  };
+  var callDeepSeekOfficialDirect = async (params) => {
+    return callOpenAiCompatibleStreaming({
+      providerName: "DeepSeek chính chủ",
+      baseUrl: DEFAULT_DEEPSEEK_BASE_URL,
+      apiKeys: [currentDeepseekApiKey],
+      model: DEFAULT_DEEPSEEK_MODEL,
+      params,
+      extraBody: { thinking: { type: "enabled" } }
+    });
+  };
+  var callGrokOfficialDirect = async (params) => {
+    return callOpenAiCompatibleStreaming({
+      providerName: "Grok",
+      baseUrl: DEFAULT_GROK_BASE_URL,
+      apiKeys: [currentGrokApiKey],
+      model: DEFAULT_GROK_MODEL,
+      params
+    });
+  };
   var callKimiDirectClientSide = async (params) => {
     const apiKey = (currentKimiApiKey || "").trim();
     let endpoint = (currentKimiEndpoint || "https://trietkimi.idecocorp2015.workers.dev/api/chat/completions").trim();
@@ -20286,28 +20518,64 @@ Chi ti\u1EBFt l\u1ED7i cu\u1ED1i c\xF9ng: ${(lastFallbackError == null ? void 0 
     throw new Error("Kimi API đã phản hồi nhưng không tìm thấy nội dung phân tích hợp lệ. Phản hồi nhận được: " + rawText.slice(0, 800));
   };
   var callAiProvider = async (params) => {
-    if (currentAiProvider !== "kimi") return callGeminiDirectClientSide(params);
-    try {
-      return await callKimiDirectClientSide(params);
-    } catch (kimiError) {
-      const kimiMessage = String((kimiError && kimiError.message) || kimiError || "");
-      const isTemporaryKimiUnavailable = /Kimi API lỗi 503|No available channel|Upstream tạm thời không khả dụng/i.test(kimiMessage);
-      if (!isTemporaryKimiUnavailable) throw kimiError;
-      console.warn("Kimi tạm thời không có kênh phục vụ. Tự động chuyển sang Gemini để tiếp tục phân tích kế hoạch.", kimiError);
+    if (currentAiProvider === "gemini") return callGeminiDirectClientSide(params);
+    if (currentAiProvider === "kimi") {
       try {
+        return await callKimiDirectClientSide(params);
+      } catch (kimiError) {
+        const kimiMessage = String((kimiError && kimiError.message) || kimiError || "");
+        const isTemporaryKimiUnavailable = /Kimi API lỗi 503|No available channel|Upstream tạm thời không khả dụng/i.test(kimiMessage);
+        if (!isTemporaryKimiUnavailable) throw kimiError;
+        console.warn("Kimi tạm thời không có kênh phục vụ. Tự động chuyển sang Gemini.", kimiError);
         const geminiResult = await callGeminiDirectClientSide(params);
         return {
           ...geminiResult,
           providerFallback: "gemini",
-          providerWarning: "Kimi tạm thời không khả dụng nên hệ thống đã tự động dùng Gemini để hoàn tất phân tích."
+          providerWarning: "Kimi tạm thời không khả dụng nên hệ thống đã tự động dùng Gemini."
         };
-      } catch (geminiError) {
-        throw new Error(
-          "Kimi tạm thời không có kênh phục vụ (503), đồng thời Gemini dự phòng cũng không chạy được. " +
-          "Vui lòng kiểm tra Gemini API Key trong Cài đặt AI hoặc thử lại sau. Chi tiết Kimi: " + kimiMessage +
-          "; Chi tiết Gemini: " + String((geminiError && geminiError.message) || geminiError || "")
-        );
       }
+    }
+    const errors = [];
+    try {
+      return await callBaiDirectClientSide(params);
+    } catch (baiError) {
+      errors.push(`B.AI: ${String((baiError && baiError.message) || baiError || "")}`);
+      console.warn("B.AI lỗi, bắt đầu chuỗi dự phòng DeepSeek → Grok → Gemini.", baiError);
+    }
+    if ((currentDeepseekApiKey || "").trim()) {
+      try {
+        const result = await callDeepSeekOfficialDirect(params);
+        return {
+          ...result,
+          providerFallback: "deepseek",
+          providerWarning: "B.AI không khả dụng nên hệ thống đã tự động dùng DeepSeek chính chủ."
+        };
+      } catch (deepseekError) {
+        errors.push(`DeepSeek: ${String((deepseekError && deepseekError.message) || deepseekError || "")}`);
+      }
+    }
+    if ((currentGrokApiKey || "").trim()) {
+      try {
+        const result = await callGrokOfficialDirect(params);
+        return {
+          ...result,
+          providerFallback: "grok",
+          providerWarning: "B.AI/DeepSeek không khả dụng nên hệ thống đã tự động dùng Grok."
+        };
+      } catch (grokError) {
+        errors.push(`Grok: ${String((grokError && grokError.message) || grokError || "")}`);
+      }
+    }
+    try {
+      const geminiResult = await callGeminiDirectClientSide(params);
+      return {
+        ...geminiResult,
+        providerFallback: "gemini",
+        providerWarning: "B.AI và các nhánh dự phòng trước đó không khả dụng nên hệ thống đã tự động dùng Gemini."
+      };
+    } catch (geminiError) {
+      errors.push(`Gemini: ${String((geminiError && geminiError.message) || geminiError || "")}`);
+      throw new Error("Toàn bộ chuỗi AI B.AI → DeepSeek → Grok → Gemini đều không khả dụng. " + errors.join(" | "));
     }
   };
   var callAiWithRetry = async (params, maxRetries = 2) => {
@@ -20510,231 +20778,63 @@ Y\xEAu c\u1EA7u ng\u1EAFn g\u1ECDn:
     }
     return clean.trim();
   };
-  var isTargetEmployee = (text, targetName) => {
-    if (!targetName || !text) return false;
-    const normText = normalizeForSearch(text);
-    const normTarget = normalizeForSearch(targetName);
-    if (normText.includes(normTarget)) return true;
-    const targetWords = normTarget.split(/\s+/).filter(Boolean);
-    if (targetWords.length === 0) return false;
-    if (targetWords.length >= 2) {
-      const lastTwo = targetWords.slice(-2).join(" ");
-      if (normText.includes(lastTwo)) return true;
-    }
-    const simplifiedText = normText.replace(/[^a-z0-9]/g, "");
-    const simplifiedTarget = normTarget.replace(/[^a-z0-9]/g, "");
-    if (simplifiedText.includes(simplifiedTarget)) return true;
-    if (targetWords.length >= 2) {
-      const simplifiedLastTwo = targetWords.slice(-2).join("").replace(/[^a-z0-9]/g, "");
-      if (simplifiedText.includes(simplifiedLastTwo)) return true;
-    }
-    const lastWord = targetWords[targetWords.length - 1];
-    if (lastWord && lastWord.length >= 2) {
-      const regex = new RegExp(`\\b${lastWord}\\b`, "i");
-      if (regex.test(normText)) {
-        const personKeywords = ["cho", "vy", "nhat vy", "nhan vien", "cho ban", "rieng", "nhan su", "doi voi", "danh cho"];
-        const hasPersonKeyword = personKeywords.some((kw) => normText.includes(kw));
-        const hasColonHeader = normText.includes(":") && normText.split(":")[0].trim() === lastWord;
-        const isShortHeader = normText.length < 25 && (normText.startsWith(lastWord) || normText.includes("gom") || normText.includes("co"));
-        if (hasPersonKeyword || hasColonHeader || isShortHeader) {
-          return true;
-        }
-      }
-    }
-    const textWords = normText.replace(/[:•\-*+]/g, " ").split(/\s+/).filter(Boolean);
-    if (textWords.length >= 1) {
-      const commonNames = [
-        "tuan",
-        "hoa",
-        "vy",
-        "lan",
-        "huong",
-        "linh",
-        "phong",
-        "nam",
-        "hung",
-        "dung",
-        "trang",
-        "phuong",
-        "hai",
-        "hoang",
-        "son",
-        "cuong",
-        "anh",
-        "duc",
-        "minh",
-        "huyen",
-        "thao",
-        "trinh",
-        "quynh",
-        "yen",
-        "khanh",
-        "oanh",
-        "mai",
-        "ngoc",
-        "diep",
-        "binh",
-        "dong",
-        "kien",
-        "khoa",
-        "thanh",
-        "quang",
-        "huy",
-        "bach",
-        "dat",
-        "duong",
-        "lam",
-        "long",
-        "quan",
-        "thieu",
-        "tien",
-        "toan",
-        "tri",
-        "trung",
-        "viet",
-        "vinh"
-      ];
-      const filteredTextWords = textWords.filter((w) => commonNames.includes(w) || w === "tran" || w === "nguyen" || w === "le" || w === "pham");
-      if (filteredTextWords.length >= 1) {
-        const textPhrase = filteredTextWords.join(" ");
-        if (normTarget.includes(textPhrase)) {
-          return true;
-        }
-      }
-    }
-    return false;
+  // So khop DINH HUONG theo TOAN BO HO TEN nguoi lap.
+  // Bo dau tieng Viet + ky tu Markdown, nhung KHONG cho phep khop mo theo ten cuoi / 2 tu cuoi.
+  var normalizeEmployeeNameStrict = (value) => {
+    return normalizeForSearch(String(value || ""))
+      .replace(/[^a-z0-9\s]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
   };
-  var isAnotherEmployeeLine = (lineText, targetName) => {
-    const trimmedLine = lineText.trim();
-    if (!trimmedLine) return false;
-    const normLine = normalizeForSearch(lineText);
-    if (isTargetEmployee(lineText, targetName)) {
-      return false;
-    }
-    const commonNames = [
-      "tuan",
-      "hoa",
-      "vy",
-      "lan",
-      "huong",
-      "linh",
-      "phong",
-      "nam",
-      "hung",
-      "dung",
-      "trang",
-      "phuong",
-      "hai",
-      "hoang",
-      "son",
-      "cuong",
-      "anh",
-      "duc",
-      "minh",
-      "huyen",
-      "thao",
-      "trinh",
-      "quynh",
-      "yen",
-      "khanh",
-      "oanh",
-      "mai",
-      "ngoc",
-      "diep",
-      "binh",
-      "dong",
-      "kien",
-      "khoa",
-      "thanh",
-      "quang",
-      "huy",
-      "bach",
-      "dat",
-      "duong",
-      "lam",
-      "long",
-      "quan",
-      "thieu",
-      "tien",
-      "toan",
-      "tri",
-      "trung",
-      "viet",
-      "vinh",
-      "chi",
-      "giang",
-      "bich",
-      "hang",
-      "hong",
-      "nhan",
-      "phat",
-      "loc",
-      "quy",
-      "quyen",
-      "tai",
-      "tam",
-      "tan",
-      "thuan",
-      "thu",
-      "thuy",
-      "tuyet"
-    ];
-    const normTarget = normalizeForSearch(targetName);
-    const targetWords = normTarget.split(/\s+/).filter(Boolean);
-    const containsOtherName = (text) => {
-      const words = text.split(/\s+/);
-      return words.some((w) => commonNames.includes(w) && !targetWords.includes(w));
-    };
-    if (lineText.includes(":")) {
-      const parts = lineText.split(":");
-      const beforeColon = parts[0].trim();
-      const normBefore = normalizeForSearch(beforeColon);
-      if (normBefore.length > 0 && normBefore.length < 40 && containsOtherName(normBefore)) {
-        const systemKeywords = [
-          "quy dinh",
-          "chung",
-          "dinh huong",
-          "luu y",
-          "bo phan",
-          "huong dan",
-          "muc tieu",
-          "kpi",
-          "nhiem vu",
-          "cong viec",
-          "chu truong",
-          "yeu cau",
-          "bao cao",
-          "ke hoach",
-          "giao vien",
-          "nhan vien",
-          "tieu chi",
-          "kiem tra",
-          "soi chieu",
-          "the le",
-          "quy tac"
-        ];
-        const hasSystem = systemKeywords.some((kw) => normBefore.includes(kw));
-        if (!hasSystem) {
-          return true;
-        }
-      }
-    }
-    if (trimmedLine.length < 50) {
-      const personKeywords = ["rieng cho", "doi voi", "cua ban", "cho nhan vien", "cho ban", "phan cua", "danh cho", "gom:"];
-      const hasPersonKeyword = personKeywords.some((kw) => normLine.includes(kw));
-      if (hasPersonKeyword && containsOtherName(normLine)) {
-        return true;
-      }
-      const cleanedLineText = trimmedLine.replace(/^[-•*+0-9.\s]+/, "").trim();
-      if (cleanedLineText.length > 2 && cleanedLineText.length < 30) {
-        const words = cleanedLineText.split(/\s+/);
-        const isCapitalized = words.every((w) => w && w[0] === w[0].toUpperCase());
-        if (isCapitalized && containsOtherName(normalizeForSearch(cleanedLineText))) {
-          return true;
-        }
-      }
-    }
-    return false;
+  var stripDirectionMarkup = (value) => {
+    return String(value || "")
+      .replace(/[\*_`#>\[\](){}]/g, " ")
+      .replace(/^\s*[-•+\d.)]+\s*/, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  };
+  var getDepartmentKeyFromLabel = (value) => {
+    const normDept = normalizeForSearch(String(value || "")).trim();
+    if (normDept.includes("kinh doanh")) return "business";
+    if (normDept.includes("ke toan")) return "accounting";
+    if (normDept.includes("kho van") || normDept.includes("kho - van") || normDept.includes("kho-van")) return "logistics";
+    if (normDept === "sop" || normDept.includes("bo phan sop") || normDept.includes("quy trinh sop")) return "sop";
+    return "";
+  };
+  var normalizeEmployeeIdentity = (value) => {
+    return String(value || "")
+      .replace(/[\*_`#>\[\](){}]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toLocaleLowerCase("vi");
+  };
+  var getEmployeeDirectionKey = (employeeName) => {
+    const identity = normalizeEmployeeIdentity(employeeName);
+    if (!identity) return "";
+    // GIU NGUYEN DAU TIENG VIET trong danh tinh de tranh trung Thương/Thường...
+    // encodeURIComponent giup khoa Firebase an toan voi / # $ [ ] va ky tu dac biet.
+    return encodeURIComponent(identity).replace(/\./g, "%2E");
+  };
+  var isTargetEmployee = (text, targetName) => {
+    const target = normalizeEmployeeNameStrict(targetName);
+    const candidate = normalizeEmployeeNameStrict(stripDirectionMarkup(text));
+    if (!target || !candidate) return false;
+    // Bat buoc toan bo ho ten phai xuat hien lien tiep theo ranh gioi tu.
+    return (` ${candidate} `).includes(` ${target} `);
+  };
+  var isTargetEmployeeHeader = (lineText, targetName) => {
+    const raw = String(lineText || "").trim();
+    if (!raw) return false;
+    const target = normalizeEmployeeNameStrict(targetName);
+    if (!target) return false;
+    const cleaned = stripDirectionMarkup(raw);
+    const candidate = normalizeEmployeeNameStrict(cleaned);
+    // CHI nhan dung khi HO TEN DAY DU nam NGAY DAU dong/heading.
+    // Tranh truong hop mot tieu de in dam vo tinh nhac ten nhan vien o giua cau.
+    const startsWithFullName = candidate === target || candidate.startsWith(target + " ");
+    const beforeColon = normalizeEmployeeNameStrict(stripDirectionMarkup((cleaned.split(":")[0] || "")));
+    const colonHeader = beforeColon === target || beforeColon.startsWith(target + " ");
+    return startsWithFullName || colonHeader;
   };
   var isGeneralSectionHeader = (lineText) => {
     const normLine = normalizeForSearch(lineText);
@@ -20750,68 +20850,88 @@ Y\xEAu c\u1EA7u ng\u1EAFn g\u1ECDn:
       "chung cho tat ca",
       "huong dan chung"
     ];
-    const hasGeneralKeyword = generalKeywords.some((kw) => normLine.includes(kw));
-    if (hasGeneralKeyword) return true;
-    if (normLine.startsWith("dinh huong chung") || normLine.startsWith("luu y chung") || normLine.startsWith("quy dinh chung")) {
-      return true;
-    }
-    return false;
+    return generalKeywords.some((kw) => normLine === kw || normLine.startsWith(kw + " ") || normLine.startsWith(kw + ":"));
   };
-  var getCleanedRulesForEmployee = (rules, employeeName) => {
-    if (!rules) return "";
-    const trimmedName = employeeName ? employeeName.trim() : "";
-    const lines = rules.split("\n");
-    const cleanedLines = [];
-    let skippingEmployee = false;
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      if (isTargetEmployee(line, trimmedName) || isAnotherEmployeeLine(line, trimmedName)) {
-        skippingEmployee = true;
-      } else if (isGeneralSectionHeader(line)) {
-        skippingEmployee = false;
-      }
-      if (!skippingEmployee) {
-        cleanedLines.push(line);
-      }
+  var getLeadingEmployeeNameFromHeader = (lineText) => {
+    const raw = String(lineText || "").trim();
+    if (!raw) return "";
+    const cleaned = stripDirectionMarkup(raw);
+    const tokens = cleaned.split(/\s+/).filter(Boolean);
+    if (tokens.length < 2) return "";
+    const commonSurnames = [
+      "nguyen", "tran", "le", "pham", "vo", "vu", "hoang", "huynh", "phan", "dang", "bui", "do", "ho", "ngo", "duong", "ly",
+      "dinh", "trinh", "cao", "luong", "mai", "doan", "ta", "to", "quach", "chau", "truong", "lam", "luu", "ha", "thai", "ton", "tong", "mac"
+    ];
+    const firstNorm = normalizeEmployeeNameStrict(tokens[0]);
+    if (!commonSurnames.includes(firstNorm)) return "";
+
+    const nameTokens = [];
+    for (let i = 0; i < Math.min(tokens.length, 7); i++) {
+      const token = String(tokens[i] || "").replace(/[,:;.!?]+$/g, "");
+      if (!token) break;
+      const firstChar = token.charAt(0);
+      const isUpperInitial = firstChar && firstChar === firstChar.toUpperCase() && firstChar !== firstChar.toLowerCase();
+      if (i > 0 && !isUpperInitial) break;
+      nameTokens.push(token);
+      if (/[:：]$/.test(tokens[i])) break;
     }
-    return cleanedLines.join("\n").trim();
+    return nameTokens.length >= 2 ? nameTokens.join(" ") : "";
+  };
+  var isLikelyOtherEmployeeHeader = (lineText, targetName) => {
+    const raw = String(lineText || "").trim();
+    if (!raw || isTargetEmployeeHeader(raw, targetName)) return false;
+    if (isGeneralSectionHeader(raw)) return true;
+
+    // Chi cat block khi dong tiep theo THUC SU bat dau bang mot ho ten nguoi.
+    // Khong con coi moi dong **in dam** la nhan vien moi, vi dieu do lam mat cac muc KPI/Muc tieu/Deadline ben trong block.
+    const leadingName = getLeadingEmployeeNameFromHeader(raw);
+    if (!leadingName) return false;
+    const normLeading = normalizeEmployeeNameStrict(leadingName);
+    const normTarget = normalizeEmployeeNameStrict(targetName);
+    return !!normLeading && normLeading !== normTarget;
+  };
+  var getOrientationDisplayText = (rules) => {
+    // Chi dung cho GIAO DIEN: luon hien nguyen van dinh huong da khai, khong cat/xoa noi dung.
+    return String(rules || "").trim();
+  };
+  var getCleanedRulesForEmployee = () => {
+    // Chi dung cho PROMPT AI: theo yeu cau, AI KHONG duoc tron dinh huong cua nguoi khac.
+    return "KHÔNG ÁP DỤNG ĐỊNH HƯỚNG CỦA NHÂN VIÊN KHÁC. CHỈ PHÂN TÍCH KHỐI ĐỊNH HƯỚNG RIÊNG KHỚP TOÀN BỘ HỌ TÊN NGƯỜI LẬP Ở PHẦN TRÊN.";
   };
   var extractRulesForEmployee = (rules, employeeName) => {
     if (!employeeName || !rules) return "";
-    const trimmedName = employeeName.trim();
-    if (!trimmedName) return "";
-    const lines = rules.split("\n");
+    const target = normalizeEmployeeNameStrict(employeeName);
+    if (!target) return "";
+    const lines = String(rules).split(/\r?\n/);
     const extractedSections = [];
     let currentSection = [];
     let isCollecting = false;
+
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      if (isTargetEmployee(line, trimmedName)) {
-        if (!isCollecting) {
-          isCollecting = true;
-          currentSection = [line];
-        } else {
-          currentSection.push(line);
+      if (isTargetEmployeeHeader(line, employeeName)) {
+        if (isCollecting && currentSection.length) {
+          extractedSections.push(currentSection);
         }
-      } else if (isCollecting) {
-        if (isAnotherEmployeeLine(line, trimmedName) || isGeneralSectionHeader(line)) {
-          isCollecting = false;
-          if (currentSection.length > 0) {
-            extractedSections.push(currentSection);
-            currentSection = [];
-          }
-        } else {
-          currentSection.push(line);
-        }
+        isCollecting = true;
+        currentSection = [line];
+        continue;
       }
+      if (isCollecting && isLikelyOtherEmployeeHeader(line, employeeName)) {
+        if (currentSection.length) extractedSections.push(currentSection);
+        currentSection = [];
+        isCollecting = false;
+        continue;
+      }
+      if (isCollecting) currentSection.push(line);
     }
-    if (isCollecting && currentSection.length > 0) {
-      extractedSections.push(currentSection);
-    }
-    if (extractedSections.length > 0) {
-      return extractedSections.map((sec) => sec.join("\n")).join("\n\n");
-    }
-    return "";
+    if (isCollecting && currentSection.length) extractedSections.push(currentSection);
+
+    return extractedSections
+      .map((sec) => sec.join("\n").trim())
+      .filter(Boolean)
+      .join("\n\n")
+      .trim();
   };
   var DISCLAIMER_PREFIX = "Huy\u1EC1n ch\u1EC9 c\xE1ch b\u1EA1n ki\u1EC3m tra v\xE0 ho\xE0n thi\u1EC7n k\u1EBF ho\u1EA1ch n\xE8 : copy to\xE0n b\u1ED9 k\u1EBF ho\u1EA1ch c\u1EE7a b\u1EA1n, v\xE0o ERP m\u1EDF AI c\u1EE7a Huy\u1EC1n ra , v\xE0o ph\u1EA7n ki\u1EC3m tra k\u1EBF ho\u1EA1ch , d\xE1n k\u1EBF ho\u1EA1ch b\u1EA1n v\xE0o, g\xF5 Enter, Huy\u1EC1n s\u1EBD t\u01B0 v\u1EA5n v\xE0 l\u1EADp Demo r\u1ED3i ch\u1EC9nh theo.Nh\u01B0ng nh\u1EDB quan tr\u1ECDng b\u1EA1n ph\u1EA3i th\u1EF1c hi\u1EC7n \u0111\xFAng cam k\u1EBFt m\u1EE5c ti\xEAu do ch\xEDnh m\xECnh nh\xE9\n\n-----------------------------------------\n\n";
   var getHuyenAiFeedback = async (objective, taskName, expectedResult, startDate, endDate, allOtherTasks, knowledgeBaseRules, employeeName) => {
@@ -20820,8 +20940,8 @@ Y\xEAu c\u1EA7u ng\u1EAFn g\u1ECDn:
       const serializedOtherTasks = allOtherTasks.map(
         (t) => `- [${t.dayName}] Vi\u1EC7c: "${t.name}" | KQ: "${t.expectedResult}" | Ng\xE0y: ${t.startDate ? t.startDate : "tr\u1ED1ng"} - ${t.endDate ? t.endDate : "tr\u1ED1ng"}`
       ).join("\n");
-      const employeeRulesHighlight = extractRulesForEmployee(knowledgeBaseRules, employeeName);
-      const cleanedRulesForAi = getCleanedRulesForEmployee(knowledgeBaseRules, employeeName);
+      const employeeRulesHighlight = String(knowledgeBaseRules || "").trim();
+      const cleanedRulesForAi = employeeRulesHighlight ? getCleanedRulesForEmployee() : "KHÔNG CÓ ĐỊNH HƯỚNG RIÊNG: bỏ qua toàn bộ yêu cầu đối chiếu định hướng; vẫn phân tích độc lập dữ liệu hiện có và không được tự tạo định hướng giả.";
       const response = await callAiWithRetry({
         model: "gemini-3.5-flash",
         contents: `B\u1EA1n l\xE0 Tr\u1EE3 l\xFD Gi\xE1m \u0110\u1ED1c Huy\u1EC1n. H\xE3y \u0111\xE1nh gi\xE1 c\xF4ng vi\u1EC7c c\u1EE5 th\u1EC3 n\xE0y c\u1EE7a ${employeeName} m\u1ED9t c\xE1ch chi ti\u1EBFt, \u0111\u1EA7y \u0111\u1EE7 v\xE0 chuy\xEAn nghi\u1EC7p:
@@ -20829,9 +20949,9 @@ NH\xC2N VI\xCAN \u0110ANG L\u1EACP K\u1EBE HO\u1EA0CH: "${employeeName || "Ch\u0
 M\u1EE4C TI\xCAU TU\u1EA6N: "${objective || "Ch\u01B0a thi\u1EBFt l\u1EADp"}"
 
 TH\xD4NG TIN QUY \u0110\u1ECANH HO\xC0N TO\xC0N RI\xCANG CHO ${employeeName} TRONG C\xC0I \u0110\u1EB6T:
-"${employeeRulesHighlight || "Kh\xF4ng c\xF3."}"
+"${employeeRulesHighlight || "KHÔNG CÓ ĐỊNH HƯỚNG RIÊNG. Bỏ qua tiêu chí định hướng và vẫn tiếp tục phân tích đầy đủ kế hoạch hiện có; tuyệt đối không lấy định hướng của nhân viên khác."}"
 
-CHUNG CHO C\u1EA2 B\u1ED8 PH\u1EACN:
+NGUY\xCAN T\u1EAE C L\u1ECC D\u1EEE LI\u1EC6U \u0110\u1ECANH H\u01AF\u1EDANG:
 "${cleanedRulesForAi || "Kh\xF4ng c\xF3."}"
 
 C\xD4NG VI\u1EC6C C\u1EA6N \u0110\xC1NH GI\xC1:
@@ -20870,8 +20990,8 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
     var _a;
     try {
       const serializedChecklist = checklistItems.map((t, idx) => `${idx + 1}. ${t.content}`).join("\n");
-      const employeeRulesHighlight = extractRulesForEmployee(knowledgeBaseRules, employeeName);
-      const cleanedRulesForAi = getCleanedRulesForEmployee(knowledgeBaseRules, employeeName);
+      const employeeRulesHighlight = String(knowledgeBaseRules || "").trim();
+      const cleanedRulesForAi = employeeRulesHighlight ? getCleanedRulesForEmployee() : "KHÔNG CÓ ĐỊNH HƯỚNG RIÊNG: bỏ qua toàn bộ yêu cầu đối chiếu định hướng; vẫn phân tích độc lập dữ liệu hiện có và không được tự tạo định hướng giả.";
       const response = await callAiWithRetry({
         model: "gemini-3.5-flash",
         contents: `B\u1EA1n l\xE0 Tr\u1EE3 l\xFD Gi\xE1m \u0110\u1ED1c Huy\u1EC1n. H\xE3y ti\u1EBFn h\xE0nh ki\u1EC3m tra r\xE0 so\xE1t v\xF4 c\xF9ng chi ti\u1EBFt, \u0111\u1EA7y \u0111\u1EE7 h\u1EC7 th\u1ED1ng Checklist th\xE1ng n\xE0y c\u1EE7a ${employeeName}:
@@ -20879,9 +20999,9 @@ TI\u1EBEN \u0110\u1ED8 & N\u1ED8I DUNG CHECKLIST TH\xC1NG:
 ${serializedChecklist || "Ch\u01B0a c\xF3."}
 
 TH\xD4NG TIN QUY \u0110\u1ECANH HO\xC0N TO\xC0N RI\xCANG CHO ${employeeName} TRONG C\xC0I \u0110\u1EB6T:
-"${employeeRulesHighlight || "Kh\xF4ng c\xF3."}"
+"${employeeRulesHighlight || "KHÔNG CÓ ĐỊNH HƯỚNG RIÊNG. Bỏ qua tiêu chí định hướng và vẫn tiếp tục phân tích đầy đủ kế hoạch hiện có; tuyệt đối không lấy định hướng của nhân viên khác."}"
 
-CHUNG CHO C\u1EA2 B\u1ED8 PH\u1EACN TRONG C\xC0I \u0110\u1EB6T TH\xD4NG TIN:
+NGUY\xCAN T\u1EAE C L\u1ECC D\u1EEE LI\u1EC6U \u0110\u1ECANH H\u01AF\u1EDANG:
 "${cleanedRulesForAi || "Kh\xF4ng c\xF3."}"
 
 QUY T\u1EAEC PH\xC2N T\xCDCH K\u1EBE HO\u1EA0CH & G\xD3P \xDD B\u1EAET BU\u1ED8C:
@@ -20893,7 +21013,7 @@ QUY T\u1EAEC PH\xC2N T\xCDCH K\u1EBE HO\u1EA0CH & G\xD3P \xDD B\u1EAET BU\u1ED8C
 
 H\u01AF\u1EDANG D\u1EAAN KI\u1EC2M TRA CHUY\xCAN S\xC2U:
 1. R\xE0 so\xE1t L\u1ED7i ch\xEDnh t\u1EA3 & Ng\u1EEF ngh\u0129a: Xem to\xE0n b\u1ED9 c\xE1c \u0111\u1EA7u m\u1EE5c checklist nh\xE2n vi\xEAn t\u1EF1 l\u1EADp xem c\xF3 sai l\u1ED7i ch\xEDnh t\u1EA3, c\xE2u c\xFA l\u1EE7ng c\u1EE7ng hay di\u1EC5n \u0111\u1EA1t ch\u01B0a c\xF3 chi\u1EC1u s\xE2u chuy\xEAn m\xF4n hay kh\xF4ng. H\xE3y chu\u1EA9n h\xF3a c\xE2u ch\u1EEF gi\xFAp h\u1ECD.
-2. \u0110\u1ED1i chi\u1EBFu \u0110\u1EA6Y \u0110\u1EE6 \u0111\u1ECBnh h\u01B0\u1EDBng: \u0110\u1ECDc k\u1EF9 danh s\xE1ch \u0111\u1ECBnh h\u01B0\u1EDBng ri\xEAng c\u1EE7a "${employeeName}" g\u1ED3m c\xE1c quy t\u1EAFc nh\u01B0 "Mai Tr\u1EA7n Nh\u1EADt Vy g\u1ED3m..." (tr\xE1nh tuy\u1EC7t \u0111\u1ED1i nh\u1EA7m l\u1EABn sang ng\u01B0\u1EDDi kh\xE1c). Ch\u1EC9 ra r\xF5 r\xE0ng, c\u1EE5 th\u1EC3 t\u1EEBng quy chu\u1EA9n hay \u0111\u1EA7u vi\u1EC7c b\u1EAFt bu\u1ED9c n\xE0o \u0111\xE3 \u0111\u01B0\u1EE3c khai b\xE1o t\u1ED1t, v\xE0 nh\u1EEFng m\u1EE5c ti\xEAu n\xE0o c\xF2n b\u1ECB b\u1ECF s\xF3t ch\u01B0a \u0111\u0103ng k\xFD v\xE0o checklist th\xE1ng.
+2. \u0110\u1ED1i chi\u1EBFu \u0110\u1EA6Y \u0110\u1EE6 \u0111\u1ECBnh h\u01B0\u1EDBng N\u1EBEU C\xD3: \u0110\u1ECDc k\u1EF9 danh s\xE1ch \u0111\u1ECBnh h\u01B0\u1EDBng ri\xEAng c\u1EE7a "${employeeName}" g\u1ED3m c\xE1c quy t\u1EAFc nh\u01B0 "Mai Tr\u1EA7n Nh\u1EADt Vy g\u1ED3m..." (tr\xE1nh tuy\u1EC7t \u0111\u1ED1i nh\u1EA7m l\u1EABn sang ng\u01B0\u1EDDi kh\xE1c). Ch\u1EC9 ra r\xF5 r\xE0ng, c\u1EE5 th\u1EC3 t\u1EEBng quy chu\u1EA9n hay \u0111\u1EA7u vi\u1EC7c b\u1EAFt bu\u1ED9c n\xE0o \u0111\xE3 \u0111\u01B0\u1EE3c khai b\xE1o t\u1ED1t, v\xE0 nh\u1EEFng m\u1EE5c ti\xEAu n\xE0o c\xF2n b\u1ECB b\u1ECF s\xF3t ch\u01B0a \u0111\u0103ng k\xFD v\xE0o checklist th\xE1ng.
 3. Cung c\u1EA5p h\u01B0\u1EDBng d\u1EABn th\u1EF1c hi\u1EC7n t\u1ED1t nh\u1EA5t: B\xEAn c\u1EA1nh c\xE1c \u0111i\u1EC3m khuy\u1EBFt, cung c\u1EA5p th\xEAm ch\u1EC9 d\u1EABn nghi\u1EC7p v\u1EE5 c\u1EE5 th\u1EC3 gi\xFAp nh\xE2n vi\xEAn bi\u1EBFt c\xE1ch tri\u1EC3n khai xu\u1EA5t s\u1EAFc c\xE1c quy chu\u1EA9n \u0111\xE3 c\xE0i \u0111\u1EB7t.
 4. \u0110\u01A1n h\xE0ng chu\u1ED7i l\u1EDBn: Ki\u1EC3m tra s\xE1t sao v\xE0 nh\u1EAFc nh\u1EDF vi\u1EC7c b\xE1m s\xE1t ti\u1EBFn tr\xECnh c\xE1c \u0111\u01A1n h\xE0ng l\u1EDBn v\xE0 t\u01B0\u01A1ng t\xE1c v\u1EDBi c\xE1c chu\u1ED7i nh\xE0 thu\u1ED1c l\u1EDBn.
 5. \u0110\u1ECBnh h\u01B0\u1EDBng ri\xEAng cho ${employeeName}: \u0110\u1EB7t ngay \u0111\u1EC1 xu\u1EA5t chi ti\u1EBFt l\xEAn d\xF2ng \u0111\u1EA7u ph\xE1t bi\u1EC3u c\u1EE7a b\u1EA1n: "${employeeName}: <\u0110\u1ECBnh h\u01B0\u1EDBng v\xE0 \u0111i\u1EC1u ch\u1EC9nh s\xE1t s\u01B0\u1EDDn theo c\xE0i \u0111\u1EB7t quy \u0111\u1ECBnh ri\xEAng c\u1EE7a nh\xE2n vi\xEAn n\xE0y>".
@@ -20913,59 +21033,96 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
     var _a;
     try {
       let serializedTasks = "";
+      let taskCount = 0;
       Object.entries(daysData).forEach(([dayName, dayObj]) => {
         const taskList = (dayObj == null ? void 0 : dayObj.tasks) || [];
         if (taskList.length > 0) {
-          serializedTasks += `
-- Ng\xE0y ${dayName}:
-`;
+          serializedTasks += `\n- Ngày ${dayName}:\n`;
           taskList.forEach((t, idx) => {
-            serializedTasks += `  + Vi\u1EC7c ${idx + 1}: "${t.name}" | KQ: "${t.expectedResult}" | Th\u1EDDi gian: ${t.startDate || "tr\u1ED1ng"} - ${t.endDate || "tr\u1ED1ng"}
-`;
+            taskCount++;
+            serializedTasks += `  + Việc ${idx + 1}: "${t.name || "Chưa đặt tên"}" | Kết quả mong đợi: "${t.expectedResult || "Chưa khai"}" | Thời gian: ${t.startDate || "trống"} - ${t.endDate || "trống"} | Hoàn thành: ${t.isCompleted ? "Có" : "Chưa"}\n`;
           });
         }
       });
-      if (!serializedTasks) {
-        serializedTasks = "Ch\u01B0a c\xF3.";
-      }
-      const employeeRulesHighlight = extractRulesForEmployee(knowledgeBaseRules, employeeName);
-      const cleanedRulesForAi = getCleanedRulesForEmployee(knowledgeBaseRules, employeeName);
+      if (!serializedTasks) serializedTasks = "Chưa có công việc nào được lập.";
+
+      const employeeRulesHighlight = String(knowledgeBaseRules || "").trim();
+      const hasPersonalDirection = !!employeeRulesHighlight;
+      const personalDirectionBlock = hasPersonalDirection
+        ? `CÓ ĐỊNH HƯỚNG RIÊNG CHO ${employeeName} - dùng như TIÊU CHÍ BỔ SUNG để đối chiếu sau khi đã phân tích bản thân kế hoạch:\n${employeeRulesHighlight}`
+        : `KHÔNG CÓ ĐỊNH HƯỚNG RIÊNG CHO ${employeeName}. Đây KHÔNG phải lỗi và KHÔNG được dừng phân tích. Hãy đánh giá độc lập toàn bộ kế hoạch hiện có theo SMART, tính liên kết mục tiêu-công việc, kết quả mong đợi, deadline, tính khả thi và chất lượng diễn đạt. Tuyệt đối không lấy định hướng của người khác.`;
+
       const response = await callAiWithRetry({
         model: "gemini-3.5-flash",
-        contents: `B\u1EA1n l\xE0 Tr\u1EE3 l\xFD Gi\xE1m \u0110\u1ED1c Huy\u1EC1n. H\xE3y r\xE0 so\xE1t t\u1ED5ng th\u1EC3 v\xE0 nh\u1EADn x\xE9t m\u1ED9t c\xE1ch t\u01B0\u1EDDng t\u1EADn, \u0111\u1EA7y \u0111\u1EE7 k\u1EBF ho\u1EA1ch ho\u1EA1t \u0111\u1ED9ng tu\u1EA7n n\xE0y c\u1EE7a ${employeeName}:
-M\u1EE4C TI\xCAU TU\u1EA6N \u0110\u1EC0 RA: "${objective || "Ch\u01B0a c\xF3"}"
-K\u1EBE HO\u1EA0CH HO\u1EA0T \u0110\u1ED8NG: 
+        contents: `Bạn là Huyền - Trợ lý Giám Đốc. Hãy SCAN TOÀN BỘ kế hoạch tuần của đúng người lập "${employeeName || "Chưa rõ tên"}" và thực hiện kiểm tra chất lượng kế hoạch một cách độc lập. ĐỊNH HƯỚNG RIÊNG LÀ TÙY CHỌN, KHÔNG PHẢI ĐIỀU KIỆN ĐỂ PHÂN TÍCH.
+
+NGƯỜI LẬP: ${employeeName || "Chưa rõ tên"}
+MỤC TIÊU TUẦN: "${objective || "Chưa khai mục tiêu"}"
+TỔNG SỐ CÔNG VIỆC ĐÃ LẬP: ${taskCount}
+KẾ HOẠCH CÔNG VIỆC THEO NGÀY:
 ${serializedTasks}
 
-QUY T\u1EAEC PH\xC2N T\xCDCH K\u1EBE HO\u1EA0CH & G\xD3P \xDD B\u1EAET BU\u1ED8C:
-1. \u0110\u1ECDc v\xE0 ph\xE2n t\xEDch c\u1EF1c k\u1EF3 k\u1EF9 l\u01B0\u1EE3ng n\u1ED9i dung c\xF4ng vi\u1EC7c ph\u1ED1i h\u1EE3p v\u1EDBi K\u1EBFt qu\u1EA3 mong \u0111\u1EE3i c\u1EE7a ng\u01B0\u1EDDi l\u1EADp \u0111\u1EC3 \u0111\u01B0a ra g\xF3p \xFD ch\xEDnh x\xE1c, ph\xF9 h\u1EE3p v\xE0 \u0111\xFAng v\u1EDBi c\xF4ng vi\u1EC7c thi\u1EBFt l\u1EADp th\u1EF1c t\u1EBF.
-2. TUY\u1EC6T \u0110\u1ED0I KH\xD4NG nh\u1EADn x\xE9t chung chung, s\xE1o r\u1ED7ng.
-3. TUY\u1EC6T \u0110\u1ED0I KH\xD4NG t\u1EA1o ra c\xE1c th\xE1ch th\u1EE9c m\u1EE5c ti\xEAu mang t\xEDnh h\xF4 h\xE0o s\xE1o r\u1ED7ng hay b\u1EAFt ng\u01B0\u1EDDi l\u1EADp ph\u1EA3i "n\u1ED7 l\u1EF1c \u0111\u1EC3 \u0111\u1EA1t" v\xF4 c\u0103n c\u1EE9 (v\xED d\u1EE5: tr\xE1nh c\xE2u h\u1ECFi/nh\u1EAFc nh\u1EDF "b\u1EA1n c\u1EA7n th\xE1ch th\u1EE9c b\u1EA3n th\xE2n", "n\u1ED7 l\u1EF1c \u0111\u1EA9y m\u1EA1nh", "quy\u1EBFt t\xE2m b\u1EE9t ph\xE1"...).
-4. TR\xC1NH TUY\u1EC6T \u0110\u1ED0I c\xE1c c\u1EE5m t\u1EEB s\xE1o r\u1ED7ng sau: "Kh\xE1ch h\xE0ng quan t\xE2m", "kh\xE1ch h\xE0ng c\xF3 \u0111\u01A1n", "ho\xE0n th\xE0nh", "ho\xE0n th\xE0nh t\u1ED1t", "\u0111\u1EA1t hi\u1EC7u qu\u1EA3", "\u0111\u1EA1t ch\u1EC9 ti\xEAu".
-5. G\u1EE3i \xFD \u0111i\u1EC1u ch\u1EC9nh k\u1EBFt qu\u1EA3 mong \u0111\u1EE3i ph\u1EA3i C\u1EE4 TH\u1EC2, L\u01AF\u1EE2NG H\xD3A \u0110\u01AF\u1EE2C b\u1EB1ng con s\u1ED1 r\xF5 r\xE0ng (v\xED d\u1EE5: doanh s\u1ED1 bao nhi\xEAu VN\u0110, bao nhi\xEAu kh\xE1ch h\xE0ng mua, c\u1EE5 th\u1EC3 c\xE1c ho\u1EA1t \u0111\u1ED9ng t\u1EA1o ra k\u1EBFt qu\u1EA3), \u0111\u1ED3ng th\u1EDDi n\xEAu r\xF5 h\xE0nh \u0111\u1ED9ng n\u1ED7 l\u1EF1c th\u1EF1c t\u1EBF c\u1EA7n th\u1EF1c hi\u1EC7n \u0111\u1EC3 \u0111\u1EA1t \u0111\u01B0\u1EE3c k\u1EBFt qu\u1EA3 c\xF4ng vi\u1EC7c c\u1EE5 th\u1EC3 \u0111\xF3.
+${personalDirectionBlock}
 
-TH\xD4NG TIN QUY \u0110\u1ECANH HO\xC0N TO\xC0N RI\xCANG CHO ${employeeName} TRONG C\xC0I \u0110\u1EB6T:
-"${employeeRulesHighlight || "Kh\xF4ng c\xF3"}"
+YÊU CẦU PHÂN TÍCH BẮT BUỘC - PHẢI LÀM ĐỦ TỪNG MỤC:
+1. KIỂM TRA MỤC TIÊU THEO SMART:
+   - S (Specific): mục tiêu có cụ thể, nói rõ phải đạt cái gì không?
+   - M (Measurable): có con số/KPI/sản lượng/doanh thu/số khách hàng/số hồ sơ/số việc hoặc tiêu chí nghiệm thu đo được không?
+   - A (Achievable): có khả thi trong 1 tuần và phù hợp tính chất công việc không?
+   - R (Relevant): có đúng trọng tâm vai trò/bộ phận và tạo giá trị cho mục tiêu công ty/công việc không?
+   - T (Time-bound): có mốc thời gian/deadline rõ ràng không?
+   Hãy kết luận từng chữ S-M-A-R-T: Đạt / Chưa đạt / Cần bổ sung gì. Nếu mục tiêu chung chung, hãy VIẾT LẠI MẪU mục tiêu SMART cụ thể hơn, không bịa số liệu chưa có; chỗ cần số liệu thì đánh dấu "[cần điền số]".
 
-CHUNG CHO C\u1EA2 B\u1ED8 PH\u1EACN TRONG C\xC0I \u0110\u1EB6T TH\xD4NG TIN:
-"${cleanedRulesForAi || "Kh\xF4ng c\xF3"}"
+2. KIỂM TRA LIÊN KẾT MỤC TIÊU → CÔNG VIỆC:
+   - Đọc TỪNG công việc trong tuần và cho biết công việc đó phục vụ mục tiêu nào, đóng góp như thế nào.
+   - Chỉ rõ công việc nào là mô tả nhiệm vụ chung chung, việc thường nhật nhưng không chứng minh được đóng góp vào mục tiêu tuần.
+   - Chỉ rõ mục tiêu nào chưa có đủ hành động để đạt được.
+   - Đề xuất công việc cần thêm/bớt/đổi cách viết để kế hoạch thực sự là hành động đạt mục tiêu, không phải danh sách mô tả công việc.
 
-Y\xCAU C\u1EA6U R\xC0 SO\xC1T TU\u1EA6N (Chi ti\u1EBFt, to\xE0n di\u1EC7n, ch\u1EA5t l\u01B0\u1EE3ng chuy\xEAn nghi\u1EC7p):
-1. R\xE0 so\xE1t L\u1ED7i ch\xEDnh t\u1EA3 & Thu\u1EADt ng\u1EEF Doanh nghi\u1EC7p: Ki\u1EC3m tra l\u1ED7i ch\xEDnh t\u1EA3 ti\u1EBFng Vi\u1EC7t, c\xE2u v\u0103n l\u1EADp k\u1EBF ho\u1EA1ch v\u1EE5ng v\u1EC1, ch\u01B0a g\xE3y g\u1ECDn v\xE0 h\u01B0\u1EDBng d\u1EABn c\xE1ch ho\xE0n thi\u1EC7n c\xE2u ng\u1EEF chuy\xEAn m\xF4n cao.
-2. Khai th\xE1c Kho\u1EA3ng tr\u1ED1ng (Gap) d\u1EF1a tr\xEAn c\xE0i \u0111\u1EB7t \u0110\u1EA6Y \u0110\u1EE6: \u0110\u1ED1i chi\u1EBFu k\u1EBF ho\u1EA1ch tu\u1EA7n v\u1EDBi c\xE1c quy t\u1EAFc \u0111\u1ECBnh h\u01B0\u1EDBng ri\xEAng cho "${employeeName}" (v\xED d\u1EE5 "Mai Tr\u1EA7n Nh\u1EADt Vy g\u1ED3m...") v\xE0 quy chu\u1EA9n chung \u0111\u1EC3 ch\u1EC9 ra r\xF5 nh\u1EEFng \u0111\u1EA7u vi\u1EC7c, ti\u1EBFn tr\xECnh nghi\u1EC7p v\u1EE5 n\xE0o ch\u01B0a \u0111\u01B0\u1EE3c \u0111\u1EC1 c\u1EADp ho\u1EB7c l\xEAn l\u1ECBch hi\u1EC7u qu\u1EA3.
-3. Cung c\u1EA5p ch\u1EC9 d\u1EABn v\xE0 g\xF3p \xFD c\xE1ch th\u1EF1c hi\u1EC7n t\u1ED1t nh\u1EA5t: V\u1EDBi m\u1ED7i kho\u1EA3ng tr\u1ED1ng ho\u1EB7c c\xF4ng vi\u1EC7c, \u0111\u01B0a ra c\xE1c ch\u1EC9 d\u1EABn nghi\u1EC7p v\u1EE5 ch\xEDnh x\xE1c, l\u1EDDi khuy\xEAn th\u1EF1c chi\u1EBFn h\u1EEFu hi\u1EC7u nh\u1EA5t \u0111\u1EC3 gi\xFAp nh\xE2n vi\xEAn ho\xE0n th\xE0nh xu\u1EA5t s\u1EAFc m\u1EE5c ti\xEAu.
-4. \u0110\u01A1n h\xE0ng chu\u1ED7i l\u1EDBn: Khuy\xEAn b\xE1m s\xE1t t\xECnh h\xECnh s\u1EA3n xu\u1EA5t, ti\u1EBFn \u0111\u1ED9 t\u1ED3n kho, chu\u1EA9n b\u1ECB v\xE0 giao d\u1ECBch v\u1EDBi c\xE1c \u0111\u01A1n h\xE0ng chu\u1ED7i nh\xE0 thu\u1ED1c l\u1EDBn.
-5. \u01AFu ti\xEAn \xFD ki\u1EBFn ri\xEAng cho ${employeeName}: \u0110\u1EB7t d\xF2ng \u0111\xF3ng g\xF3p \xFD ki\u1EBFn \u0111\u1EB7c bi\u1EC7t c\xE1 nh\xE2n h\xF3a l\xEAn h\xE0ng \u0111\u1EA7u ti\xEAn: "${employeeName}: <ph\u1EA7n ch\u1EC9 th\u1ECB, g\u1EE3i \xFD chi\u1EBFn l\u01B0\u1EE3c d\u1EF1a tr\xEAn c\xE0i \u0111\u1EB7t ri\xEAng bi\u1EC7t c\u1EE7a nh\xE2n vi\xEAn n\xE0y>".
-6. X\u01B0ng h\xF4 chu\u1EA9n ch\u1EC9: X\u01B0ng "Huy\u1EC1n", g\u1ECDi "b\u1EA1n". S\u1EAFc s\u1EA3o, chuy\xEAn nghi\u1EC7p, s\xFAc t\xEDch v\xE0 m\u1EA1ch l\u1EA1c, tr\xE0n \u0111\u1EA7y \u0111\u1ECBnh h\u01B0\u1EDBng t\xEDch c\u1EF1c.
+3. KIỂM TRA KẾT QUẢ MONG ĐỢI CỦA TỪNG VIỆC:
+   - Đối chiếu tên công việc với "Kết quả mong đợi" xem có đúng bản chất công việc không.
+   - Kết quả phải là đầu ra/tiêu chí nghiệm thu cụ thể, đo được khi có thể; không chấp nhận các câu mơ hồ như "hoàn thành tốt", "đạt hiệu quả", "khách hàng quan tâm".
+   - Kiểm tra kết quả mong đợi có bị viết thành hành động thay vì đầu ra hay không.
+   - Với từng mục chưa tốt, đưa ra CÂU SỬA MẪU ngắn gọn và sát thực tế.
 
-Cu\u1ED1i c\xE2u b\u1EAFt bu\u1ED9c xu\u1ED1ng d\xF2ng v\xE0 vi\u1EBFt ch\xEDnh x\xE1c nguy\xEAn v\u0103n l\u1EDDi k\u1EBFt:
-K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m so\xE1t nhi\u1EC7m v\u1EE5 giao n\xEAn, b\u1EA1n lu\xF4n c\u1ED1 g\u1EAFng ki\u1EC3m tra v\xE0 l\xE0m theo \u0111\xFAng`
+4. KIỂM TRA THỜI GIAN & DEADLINE:
+   - Việc nào thiếu thời gian, deadline không hợp lý, kéo dài nhưng không có mốc kiểm soát thì phải nêu rõ.
+   - Công việc xử lý nghiệp vụ phải chỉ ra "khi nào xong" hoặc mốc kiểm tra cụ thể.
+
+5. KIỂM TRA TÍNH ƯU TIÊN & KHẢ THI:
+   - Nhận xét số lượng mục tiêu/công việc có quá dàn trải không.
+   - Nêu 3 ưu tiên quan trọng nhất trong tuần dựa trên nội dung người lập đã khai; không tự bịa nhiệm vụ ngoài dữ liệu nếu không cần thiết.
+
+6. KIỂM TRA CHÍNH TẢ - CÂU TỪ - SAI SÓT:
+   - Bắt lỗi chính tả, sai từ, câu khó hiểu, dùng từ chưa chuyên nghiệp, trùng lặp, mâu thuẫn giữa mục tiêu/công việc/kết quả/deadline.
+   - Liệt kê "Câu hiện tại → Câu đề nghị sửa" đối với các lỗi quan trọng.
+
+7. ĐỊNH HƯỚNG RIÊNG NẾU CÓ:
+   - Chỉ khi khối định hướng riêng ở trên CÓ NỘI DUNG thì mới đối chiếu thêm xem kế hoạch đã bám sát chưa, thiếu mục nào, nên bổ sung gì.
+   - Nếu KHÔNG CÓ định hướng riêng: ghi đúng một câu "Chưa thiết lập định hướng riêng - Huyền phân tích độc lập theo nội dung kế hoạch hiện có." rồi tiếp tục bình thường; KHÔNG yêu cầu người dùng vào Cài đặt trước.
+
+8. KẾT LUẬN PHẢI CÓ CẤU TRÚC:
+   A. Đánh giá SMART của mục tiêu
+   B. Bảng rà soát từng công việc: Công việc | Liên kết mục tiêu | Kết quả mong đợi | Deadline | Lỗi/Góp ý | Câu sửa đề nghị
+   C. Các khoảng trống cần bổ sung
+   D. Lỗi chính tả/câu chữ/sai sót
+   E. Top 3 ưu tiên tuần
+   F. Mẫu mục tiêu/kế hoạch đã chỉnh gọn để người lập tham khảo
+
+NGUYÊN TẮC:
+- Không nhận xét chung chung, không sáo rỗng.
+- Không tự bịa doanh thu, số khách hàng, deadline hoặc dữ liệu chưa được khai. Nếu cần, dùng [cần điền số] / [cần điền deadline].
+- Không lấy định hướng của nhân viên khác.
+- Xưng "Huyền", gọi "bạn", góp ý thẳng, rõ, chuyên nghiệp nhưng mang tính hỗ trợ.
+
+Cuối câu bắt buộc xuống dòng và viết chính xác nguyên văn lời kết:
+Kế hoạch là tốt cho mình, là giúp mình kiểm soát nhiệm vụ giao nên, bạn luôn cố gắng kiểm tra và làm theo đúng`
       });
-      const aiText = ((_a = response.text) == null ? void 0 : _a.trim()) || "Kh\xF4ng c\xF3 ph\u1EA3n h\u1ED3i t\u1EEB Huy\u1EC1n AI.";
+      const aiText = ((_a = response.text) == null ? void 0 : _a.trim()) || "Không có phản hồi từ Huyền AI.";
       return DISCLAIMER_PREFIX + aiText;
     } catch (error2) {
       console.error("Plan overall verification by Huyen AI failed:", error2);
-      return DISCLAIMER_PREFIX + `L\u1ED7i k\u1EBFt n\u1ED1i Huy\u1EC1n AI: ${(error2 == null ? void 0 : error2.message) || "Vui l\xF2ng th\u1EED l\u1EA1i sau."}`;
+      return DISCLAIMER_PREFIX + `Lỗi kết nối Huyền AI: ${(error2 == null ? void 0 : error2.message) || "Vui lòng thử lại sau."}`;
     }
   };
   function getWeekDays(dateString) {
@@ -21526,6 +21683,7 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
     const [searchTerm, setSearchTerm] = (0, import_react3.useState)("");
     const [showReminderModal, setShowReminderModal] = (0, import_react3.useState)(false);
     const [pendingAction, setPendingAction] = (0, import_react3.useState)(null);
+    const [selectedPlanIds, setSelectedPlanIds] = (0, import_react3.useState)(/* @__PURE__ */ new Set());
     const lockedNames = useLockedUsers();
     (0, import_react3.useEffect)(() => {
       const plansRef = ref(db, "weekly_plans");
@@ -21543,8 +21701,13 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
             (a, b) => new Date(b.creationDate).getTime() - new Date(a.creationDate).getTime()
           );
           setPlans(planList);
+          setSelectedPlanIds((prev) => {
+            const validIds = new Set(planList.map((p) => p.id));
+            return new Set(Array.from(prev).filter((id) => validIds.has(id)));
+          });
         } else {
           setPlans([]);
+          setSelectedPlanIds(/* @__PURE__ */ new Set());
         }
       });
       return () => unsubscribe();
@@ -21553,11 +21716,44 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
       e.stopPropagation();
       if (window.confirm("B\u1EA1n c\xF3 ch\u1EAFc ch\u1EAFn mu\u1ED1n x\xF3a k\u1EBF ho\u1EA1ch n\xE0y?")) {
         await remove(ref(db, `weekly_plans/${id}`));
+        setSelectedPlanIds((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+      }
+    };
+    const togglePlanSelection = (id, checked) => {
+      setSelectedPlanIds((prev) => {
+        const next = new Set(prev);
+        if (checked) next.add(id);
+        else next.delete(id);
+        return next;
+      });
+    };
+    const handleBulkDelete = async () => {
+      const ids = Array.from(selectedPlanIds);
+      if (!ids.length) return;
+      if (!window.confirm(`Bạn có chắc muốn XÓA ${ids.length} kế hoạch đã tick chọn? Thao tác này không thể hoàn tác.`)) return;
+      try {
+        await Promise.all(ids.map((id) => remove(ref(db, `weekly_plans/${id}`))));
+        setSelectedPlanIds(/* @__PURE__ */ new Set());
+      } catch (err) {
+        console.error("Bulk delete plans failed:", err);
+        window.alert("Có lỗi khi xóa một số kế hoạch. Vui lòng kiểm tra lại danh sách.");
       }
     };
     const filteredPlans = plans.filter(
       (plan) => plan.employeeName.toLowerCase().includes(searchTerm.toLowerCase()) || plan.department.toLowerCase().includes(searchTerm.toLowerCase())
     );
+    const allFilteredSelected = filteredPlans.length > 0 && filteredPlans.every((p) => selectedPlanIds.has(p.id));
+    const toggleSelectAllFiltered = (checked) => {
+      setSelectedPlanIds((prev) => {
+        const next = new Set(prev);
+        filteredPlans.forEach((p) => checked ? next.add(p.id) : next.delete(p.id));
+        return next;
+      });
+    };
     return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "max-w-4xl mx-auto p-4 md:p-6", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex items-center justify-between mb-8", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex items-center gap-4", children: [
@@ -21587,34 +21783,40 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
         )
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "p-4 border-b border-gray-100", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "relative", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-            Search,
-            {
-              className: "absolute left-3 top-1/2 -translate-y-1/2 text-gray-400",
-              size: 20
-            }
-          ),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-            "input",
-            {
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "p-4 border-b border-gray-100 space-y-3", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "relative", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Search, { className: "absolute left-3 top-1/2 -translate-y-1/2 text-gray-400", size: 20 }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
               type: "text",
               placeholder: "T\xECm ki\u1EBFm theo t\xEAn ho\u1EB7c b\u1ED9 ph\u1EADn...",
               value: searchTerm,
               onChange: (e) => setSearchTerm(e.target.value),
               className: "w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            }
-          )
-        ] }) }),
+            })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-wrap items-center justify-between gap-3", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "inline-flex items-center gap-2 text-sm font-semibold text-gray-700 cursor-pointer select-none", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { type: "checkbox", checked: allFilteredSelected, onChange: (e) => toggleSelectAllFiltered(e.target.checked), className: "w-4 h-4 accent-blue-600" }),
+              "Chọn tất cả đang hiển thị"
+            ] }),
+            selectedPlanIds.size > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+              type: "button",
+              onClick: handleBulkDelete,
+              className: "inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 font-bold text-sm shadow-sm transition-colors",
+              children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Trash2, { size: 17 }), `Xóa ${selectedPlanIds.size} kế hoạch đã chọn`]
+            })
+          ] })
+        ] }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "overflow-x-auto", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("table", { className: "w-full text-left border-collapse", children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("thead", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", { className: "bg-gray-50 text-gray-600 text-sm uppercase tracking-wider", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { className: "p-4 font-medium w-12 text-center", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { type: "checkbox", checked: allFilteredSelected, onChange: (e) => toggleSelectAllFiltered(e.target.checked), className: "w-4 h-4 accent-blue-600", title: "Chọn tất cả" }) }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { className: "p-4 font-medium", children: "Ng\u01B0\u1EDDi l\u1EADp" }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { className: "p-4 font-medium", children: "B\u1ED9 ph\u1EADn" }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { className: "p-4 font-medium", children: "Ng\xE0y l\u1EADp" }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { className: "p-4 font-medium", children: "Tr\u1EA1ng th\xE1i" }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { className: "p-4 font-medium text-right", children: "Thao t\xE1c" })
           ] }) }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("tbody", { className: "divide-y divide-gray-100", children: filteredPlans.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("tr", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { colSpan: 5, className: "p-8 text-center text-gray-500", children: "Kh\xF4ng c\xF3 d\u1EEF li\u1EC7u" }) }) : filteredPlans.map((plan) => {
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("tbody", { className: "divide-y divide-gray-100", children: filteredPlans.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("tr", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { colSpan: 6, className: "p-8 text-center text-gray-500", children: "Kh\xF4ng c\xF3 d\u1EEF li\u1EC7u" }) }) : filteredPlans.map((plan) => {
             const isLocked = plan.employeeName && lockedNames.has(plan.employeeName.trim().toLowerCase());
             return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
               "tr",
@@ -21625,6 +21827,14 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
                   setShowReminderModal(true);
                 },
                 children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { className: "p-4 text-center", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+                    type: "checkbox",
+                    checked: selectedPlanIds.has(plan.id),
+                    onClick: (e) => e.stopPropagation(),
+                    onChange: (e) => { e.stopPropagation(); togglePlanSelection(plan.id, e.target.checked); },
+                    className: "w-4 h-4 accent-blue-600 cursor-pointer",
+                    title: "Tick chọn kế hoạch"
+                  }) }),
                   /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { className: "p-4", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex items-center gap-2", children: [
                     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "font-medium text-gray-800", children: plan.employeeName }),
                     isLocked && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
@@ -21730,6 +21940,9 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
     );
     const [checklistContent, setChecklistContent] = (0, import_react3.useState)("");
     const [planContent, setPlanContent] = (0, import_react3.useState)("");
+    const [employeeList, setEmployeeList] = (0, import_react3.useState)([]);
+    const [selectedEmployee, setSelectedEmployee] = (0, import_react3.useState)("");
+    const [isLoadingEmployees, setIsLoadingEmployees] = (0, import_react3.useState)(false);
     const [isSaving, setIsSaving] = (0, import_react3.useState)(false);
     const [passwordInput, setPasswordInput] = (0, import_react3.useState)("");
     const [isPasswordVerified, setIsPasswordVerified] = (0, import_react3.useState)(false);
@@ -21741,7 +21954,28 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
       }
     });
     const [aiProvider, setAiProvider] = (0, import_react3.useState)(() => {
-      try { return localStorage.getItem("ideco_ai_provider") || "gemini"; } catch (e) { return "gemini"; }
+      try { return localStorage.getItem("ideco_ai_provider") || "bai"; } catch (e) { return "bai"; }
+    });
+    const [baiApiKeyF01, setBaiApiKeyF01] = (0, import_react3.useState)(() => {
+      try { return localStorage.getItem("ideco_bai_api_key_f01") || EMBEDDED_BAI_API_KEY_F01; } catch (e) { return EMBEDDED_BAI_API_KEY_F01; }
+    });
+    const [baiApiKeyF02, setBaiApiKeyF02] = (0, import_react3.useState)(() => {
+      try { return localStorage.getItem("ideco_bai_api_key_f02") || ""; } catch (e) { return ""; }
+    });
+    const [baiApiKeyF03, setBaiApiKeyF03] = (0, import_react3.useState)(() => {
+      try { return localStorage.getItem("ideco_bai_api_key_f03") || ""; } catch (e) { return ""; }
+    });
+    const [baiBaseUrl, setBaiBaseUrl] = (0, import_react3.useState)(() => {
+      try { return localStorage.getItem("ideco_bai_base_url") || DEFAULT_BAI_BASE_URL; } catch (e) { return DEFAULT_BAI_BASE_URL; }
+    });
+    const [baiModel, setBaiModel] = (0, import_react3.useState)(() => {
+      try { return localStorage.getItem("ideco_bai_model") || DEFAULT_BAI_MODEL; } catch (e) { return DEFAULT_BAI_MODEL; }
+    });
+    const [deepseekApiKey, setDeepseekApiKey] = (0, import_react3.useState)(() => {
+      try { return localStorage.getItem("ideco_deepseek_api_key") || ""; } catch (e) { return ""; }
+    });
+    const [grokApiKey, setGrokApiKey] = (0, import_react3.useState)(() => {
+      try { return localStorage.getItem("ideco_grok_api_key") || ""; } catch (e) { return ""; }
     });
     const [kimiApiKey, setKimiApiKey] = (0, import_react3.useState)(() => {
       try { return localStorage.getItem("ideco_kimi_api_key") || "sk-gckulhIgEB9kZ8nwfexpoQnHfheRyAPJtXiu5QpgO6rWJEWd"; } catch (e) { return "sk-gckulhIgEB9kZ8nwfexpoQnHfheRyAPJtXiu5QpgO6rWJEWd"; }
@@ -21751,43 +21985,107 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
     });
     const [isSavingKey, setIsSavingKey] = (0, import_react3.useState)(false);
     (0, import_react3.useEffect)(() => {
-      const loadContent = async () => {
+      const loadEmployees = async () => {
+        setIsLoadingEmployees(true);
         try {
-          const kbRef = ref(db, `settings/knowledgeBase/${department}`);
-          const snap = await get(kbRef);
-          if (snap.exists()) {
-            const val = snap.val();
-            if (typeof val === "object" && val !== null) {
-              setChecklistContent(val.checklist || "");
-              setPlanContent(val.plan || "");
-            } else if (typeof val === "string") {
-              setChecklistContent(val);
-              setPlanContent(val);
-            } else {
-              setChecklistContent("");
-              setPlanContent("");
-            }
-          } else {
+          const [plansSnap, directionsSnap] = await Promise.all([
+            get(ref(db, "weekly_plans")),
+            get(ref(db, `settings/employeeDirections/${department}`))
+          ]);
+          const names = new Map();
+          if (plansSnap.exists()) {
+            const plansData = plansSnap.val() || {};
+            Object.values(plansData).forEach((p) => {
+              const name = String((p && p.employeeName) || "").trim();
+              const depKey = getDepartmentKeyFromLabel((p && p.department) || "");
+              if (name && depKey === department) {
+                names.set(normalizeEmployeeIdentity(name), name);
+              }
+            });
+          }
+          if (directionsSnap.exists()) {
+            const saved = directionsSnap.val() || {};
+            Object.values(saved).forEach((item) => {
+              const name = String((item && item.employeeName) || "").trim();
+              if (name) names.set(normalizeEmployeeIdentity(name), name);
+            });
+          }
+          const list = Array.from(names.values()).sort((a, b) => a.localeCompare(b, "vi"));
+          setEmployeeList(list);
+          setSelectedEmployee((prev) => {
+            if (prev && list.some((n) => normalizeEmployeeIdentity(n) === normalizeEmployeeIdentity(prev))) return prev;
+            return list[0] || "";
+          });
+          if (!list.length) {
             setChecklistContent("");
             setPlanContent("");
           }
         } catch (err) {
-          console.error(err);
+          console.error("Khong the tai danh sach nguoi lap:", err);
+          setEmployeeList([]);
+          setSelectedEmployee("");
+          setChecklistContent("");
+          setPlanContent("");
+        } finally {
+          setIsLoadingEmployees(false);
         }
       };
-      loadContent();
+      loadEmployees();
     }, [department]);
+    (0, import_react3.useEffect)(() => {
+      let isCancelled = false;
+      // Xoa noi dung cu NGAY khi doi bo phan/nhan vien de khong bao gio hien nham nguoi truoc.
+      setChecklistContent("");
+      setPlanContent("");
+      const loadEmployeeDirection = async () => {
+        if (!selectedEmployee) return;
+        try {
+          const employeeKey = getEmployeeDirectionKey(selectedEmployee);
+          if (!employeeKey) return;
+          const directionRef = ref(db, `settings/employeeDirections/${department}/${employeeKey}`);
+          const snap = await get(directionRef);
+          if (isCancelled) return;
+          if (snap.exists()) {
+            const val = snap.val() || {};
+            setChecklistContent(String(val.checklist || ""));
+            setPlanContent(String(val.plan || ""));
+          }
+        } catch (err) {
+          if (!isCancelled) {
+            console.error("Khong the tai dinh huong rieng nhan vien:", err);
+            setChecklistContent("");
+            setPlanContent("");
+          }
+        }
+      };
+      loadEmployeeDirection();
+      return () => { isCancelled = true; };
+    }, [department, selectedEmployee]);
     (0, import_react3.useEffect)(() => {
       const loadApiKey = async () => {
         try {
-          const [geminiSnap, providerSnap, kimiKeySnap, kimiEndpointSnap] = await Promise.all([
+          const [geminiSnap, providerSnap, baiF01Snap, baiF02Snap, baiF03Snap, baiBaseSnap, baiModelSnap, deepseekSnap, grokSnap, kimiKeySnap, kimiEndpointSnap] = await Promise.all([
             get(ref(db, "settings/api/geminiKey")),
             get(ref(db, "settings/api/provider")),
+            get(ref(db, "settings/api/baiKeyF01")),
+            get(ref(db, "settings/api/baiKeyF02")),
+            get(ref(db, "settings/api/baiKeyF03")),
+            get(ref(db, "settings/api/baiBaseUrl")),
+            get(ref(db, "settings/api/baiModel")),
+            get(ref(db, "settings/api/deepseekKey")),
+            get(ref(db, "settings/api/grokKey")),
             get(ref(db, "settings/api/kimiKey")),
             get(ref(db, "settings/api/kimiEndpoint"))
           ]);
           if (geminiSnap.exists()) setBackupApiKey(geminiSnap.val() || "");
-          if (providerSnap.exists()) setAiProvider(providerSnap.val() || "gemini");
+          if (providerSnap.exists()) setAiProvider(providerSnap.val() || "bai");
+          if (baiF01Snap.exists()) setBaiApiKeyF01(baiF01Snap.val() || EMBEDDED_BAI_API_KEY_F01);
+          if (baiF02Snap.exists()) setBaiApiKeyF02(baiF02Snap.val() || "");
+          if (baiF03Snap.exists()) setBaiApiKeyF03(baiF03Snap.val() || "");
+          if (baiBaseSnap.exists()) setBaiBaseUrl(baiBaseSnap.val() || DEFAULT_BAI_BASE_URL);
+          if (baiModelSnap.exists()) setBaiModel(baiModelSnap.val() || DEFAULT_BAI_MODEL);
+          if (deepseekSnap.exists()) setDeepseekApiKey(deepseekSnap.val() || "");
+          if (grokSnap.exists()) setGrokApiKey(grokSnap.val() || "");
           if (kimiKeySnap.exists()) setKimiApiKey(kimiKeySnap.val() || "");
           if (kimiEndpointSnap.exists()) setKimiEndpoint(kimiEndpointSnap.val() || "https://trietkimi.idecocorp2015.workers.dev/api/chat/completions");
         } catch (err) {
@@ -21797,49 +22095,43 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
       loadApiKey();
     }, []);
     const handleSaveSubContent = async (type) => {
+      if (!selectedEmployee) {
+        alert("Vui lòng chọn Người lập trước khi lưu định hướng riêng.");
+        return;
+      }
       setIsSaving(true);
       try {
-        const kbRef = ref(db, `settings/knowledgeBase/${department}`);
-        const snap = await get(kbRef);
-        let currentVal = {};
-        if (snap.exists()) {
-          const val = snap.val();
-          if (typeof val === "object" && val !== null) {
-            currentVal = { ...val };
-          } else if (typeof val === "string") {
-            currentVal = { checklist: val, plan: val };
-          }
-        }
-        if (type === "checklist") {
-          currentVal.checklist = checklistContent;
-        } else {
-          currentVal.plan = planContent;
-        }
-        await set(kbRef, currentVal);
-        alert(`\u0110\xE3 l\u01B0u \u0111\u1ECBnh h\u01B0\u1EDBng ${type === "checklist" ? "CHECKLIST" : "K\u1EBE HO\u1EA0CH"} cho b\u1ED9 ph\u1EADn th\xE0nh c\xF4ng!`);
+        const employeeKey = getEmployeeDirectionKey(selectedEmployee);
+        const directionRef = ref(db, `settings/employeeDirections/${department}/${employeeKey}`);
+        const snap = await get(directionRef);
+        const currentVal = snap.exists() && typeof snap.val() === "object" ? { ...snap.val() } : {};
+        currentVal.employeeName = selectedEmployee;
+        currentVal.department = department;
+        currentVal.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+        if (type === "checklist") currentVal.checklist = checklistContent;
+        else currentVal.plan = planContent;
+        await set(directionRef, currentVal);
+        alert(`Đã lưu định hướng ${type === "checklist" ? "CHECKLIST" : "KẾ HOẠCH"} RIÊNG cho ${selectedEmployee} thành công!`);
       } catch (err) {
         console.error(err);
-        alert("L\u1ED7i khi l\u01B0u \u0111\u1ECBnh h\u01B0\u1EDBng!");
+        alert("Lỗi khi lưu định hướng riêng cho nhân viên!");
       } finally {
         setIsSaving(false);
       }
     };
     const handleDelete = async () => {
-      const typeLabel = activeSubTab === "checklist" ? "Checklist" : "K\u1EBF ho\u1EA1ch";
-      if (confirm(`B\u1EA1n c\xF3 ch\u1EAFc mu\u1ED1n x\xF3a n\u1ED9i dung \u0111\u1ECBnh h\u01B0\u1EDBng ${typeLabel} c\u1EE7a b\u1ED9 ph\u1EADn n\xE0y?`)) {
+      if (!selectedEmployee) {
+        alert("Vui lòng chọn Người lập trước khi xóa.");
+        return;
+      }
+      const typeLabel = activeSubTab === "checklist" ? "Checklist" : "Kế hoạch";
+      if (confirm(`Bạn có chắc muốn xóa nội dung định hướng ${typeLabel} RIÊNG của ${selectedEmployee}?`)) {
         setIsSaving(true);
         try {
-          const kbRef = ref(db, `settings/knowledgeBase/${department}`);
-          const snap = await get(kbRef);
-          let currentVal = {};
-          if (snap.exists()) {
-            const val = snap.val();
-            if (typeof val === "object" && val !== null) {
-              currentVal = { ...val };
-            } else if (typeof val === "string") {
-              currentVal = { checklist: val, plan: val };
-            }
-          }
+          const employeeKey = getEmployeeDirectionKey(selectedEmployee);
+          const directionRef = ref(db, `settings/employeeDirections/${department}/${employeeKey}`);
+          const snap = await get(directionRef);
+          const currentVal = snap.exists() && typeof snap.val() === "object" ? { ...snap.val() } : { employeeName: selectedEmployee, department };
           if (activeSubTab === "checklist") {
             currentVal.checklist = "";
             setChecklistContent("");
@@ -21847,11 +22139,12 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
             currentVal.plan = "";
             setPlanContent("");
           }
-          await set(kbRef, currentVal);
-          alert(`\u0110\xE3 x\xF3a n\u1ED9i dung \u0111\u1ECBnh h\u01B0\u1EDBng ${typeLabel} th\xE0nh c\xF4ng!`);
+          currentVal.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+          await set(directionRef, currentVal);
+          alert(`Đã xóa định hướng ${typeLabel} riêng của ${selectedEmployee}.`);
         } catch (err) {
           console.error(err);
-          alert("L\u1ED7i khi x\xF3a!");
+          alert("Lỗi khi xóa!");
         } finally {
           setIsSaving(false);
         }
@@ -21868,25 +22161,54 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
       setIsSavingKey(true);
       try {
         const trimmedKey = backupApiKey.trim();
+        const trimmedBaiF01 = baiApiKeyF01.trim() || EMBEDDED_BAI_API_KEY_F01;
+        const trimmedBaiF02 = baiApiKeyF02.trim();
+        const trimmedBaiF03 = baiApiKeyF03.trim();
+        const trimmedBaiBase = baiBaseUrl.trim() || DEFAULT_BAI_BASE_URL;
+        const trimmedBaiModel = baiModel.trim() || DEFAULT_BAI_MODEL;
+        const trimmedDeepseekKey = deepseekApiKey.trim();
+        const trimmedGrokKey = grokApiKey.trim();
         const trimmedKimiKey = kimiApiKey.trim();
         const trimmedEndpoint = kimiEndpoint.trim() || "https://trietkimi.idecocorp2015.workers.dev/api/chat/completions";
         await Promise.all([
+          set(ref(db, "settings/api/configVersion"), CONFIG_VERSION),
           set(ref(db, "settings/api/geminiKey"), trimmedKey),
           set(ref(db, "settings/api/provider"), aiProvider),
+          set(ref(db, "settings/api/baiKeyF01"), trimmedBaiF01),
+          set(ref(db, "settings/api/baiKeyF02"), trimmedBaiF02),
+          set(ref(db, "settings/api/baiKeyF03"), trimmedBaiF03),
+          set(ref(db, "settings/api/baiBaseUrl"), trimmedBaiBase),
+          set(ref(db, "settings/api/baiModel"), trimmedBaiModel),
+          set(ref(db, "settings/api/deepseekKey"), trimmedDeepseekKey),
+          set(ref(db, "settings/api/grokKey"), trimmedGrokKey),
           set(ref(db, "settings/api/kimiKey"), trimmedKimiKey),
           set(ref(db, "settings/api/kimiEndpoint"), trimmedEndpoint)
         ]);
         currentCustomApiKey = trimmedKey;
         currentAiProvider = aiProvider;
+        currentBaiApiKeys = [trimmedBaiF01, trimmedBaiF02, trimmedBaiF03];
+        currentBaiBaseUrl = trimmedBaiBase;
+        currentBaiModel = trimmedBaiModel;
+        currentDeepseekApiKey = trimmedDeepseekKey;
+        currentGrokApiKey = trimmedGrokKey;
         currentKimiApiKey = trimmedKimiKey;
         currentKimiEndpoint = trimmedEndpoint;
         try {
+          localStorage.setItem("ideco_ai_config_version", String(CONFIG_VERSION));
           localStorage.setItem("backup_gemini_api_key", trimmedKey);
           localStorage.setItem("ideco_ai_provider", aiProvider);
+          localStorage.setItem("ideco_bai_api_key_f01", trimmedBaiF01);
+          localStorage.setItem("ideco_bai_api_key_f02", trimmedBaiF02);
+          localStorage.setItem("ideco_bai_api_key_f03", trimmedBaiF03);
+          localStorage.setItem("ideco_bai_base_url", trimmedBaiBase);
+          localStorage.setItem("ideco_bai_model", trimmedBaiModel);
+          localStorage.setItem("ideco_deepseek_api_key", trimmedDeepseekKey);
+          localStorage.setItem("ideco_grok_api_key", trimmedGrokKey);
           localStorage.setItem("ideco_kimi_api_key", trimmedKimiKey);
           localStorage.setItem("ideco_kimi_endpoint", trimmedEndpoint);
         } catch (e) {}
-        alert(`Đã lưu cấu hình AI thành công. Model đang sử dụng: ${aiProvider === "kimi" ? "Kimi AI" : "Gemini AI"}.`);
+        const providerLabel = aiProvider === "bai" ? `B.AI - ${trimmedBaiModel}` : aiProvider === "kimi" ? "Kimi AI" : "Gemini AI";
+        alert(`Đã lưu cấu hình AI thành công. Model đang sử dụng: ${providerLabel}.`);
       } catch (err) {
         console.error("Error saving API Key to firebase:", err);
         alert("C\xF3 l\u1ED7i x\u1EA3y ra khi l\u01B0u API Key!");
@@ -21908,7 +22230,7 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "space-y-8", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "bg-white rounded-2xl shadow-sm border border-gray-200 p-6", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { className: "text-lg font-bold text-gray-800 mb-4 flex items-center gap-2", children: "\u{1F4C2} \u0110\u1ECBnh H\u01B0\u1EDBng Ki\u1EBFn Th\u1EE9c T\u1EEBng B\u1ED9 Ph\u1EADn" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { className: "text-lg font-bold text-gray-800 mb-4 flex items-center gap-2", children: "📂 Định Hướng Công Việc Riêng Từng Nhân Viên" }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "mb-6", children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", { className: "block text-sm font-semibold text-gray-700 mb-2", children: "Ch\u1ECDn b\u1ED9 ph\u1EADn c\u1EA5u h\xECnh" }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-wrap gap-4", children: [
@@ -21935,7 +22257,33 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
                   className: `px-6 py-3 rounded-xl font-bold transition-all duration-200 border flex items-center gap-2 ${department === "logistics" ? "bg-blue-600 border-blue-600 text-white shadow-md shadow-blue-200" : "bg-white border-gray-300 text-gray-600 hover:bg-gray-50 hover:border-gray-400"}`,
                   children: "\u{1F69A} B\u1ED9 Ph\u1EADn Kho V\u1EADn"
                 }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                "button",
+                {
+                  onClick: () => setDepartment("sop"),
+                  className: `px-6 py-3 rounded-xl font-bold transition-all duration-200 border flex items-center gap-2 ${department === "sop" ? "bg-blue-600 border-blue-600 text-white shadow-md shadow-blue-200" : "bg-white border-gray-300 text-gray-600 hover:bg-gray-50 hover:border-gray-400"}`,
+                  children: "📘 Bộ Phận SOP"
+                }
               )
+            ] })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "mb-6 p-4 rounded-2xl border border-indigo-200 bg-indigo-50/60", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", { className: "block text-sm font-bold text-indigo-900 mb-2", children: "👤 Chọn Người lập để khai định hướng riêng" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-indigo-700 mb-3", children: "Danh sách tự lấy từ các kế hoạch đã lập của đúng bộ phận. AI sẽ dùng chính xác bản định hướng gắn với tên người này, không dò tên trong một văn bản chung nữa." }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
+              value: selectedEmployee,
+              onChange: (e) => setSelectedEmployee(e.target.value),
+              disabled: isLoadingEmployees || employeeList.length === 0,
+              className: "w-full px-4 py-3 border border-indigo-300 rounded-xl bg-white font-bold text-gray-800 focus:ring-2 focus:ring-indigo-500 outline-none disabled:bg-gray-100",
+              children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "", children: isLoadingEmployees ? "Đang tải danh sách Người lập..." : employeeList.length ? "-- Chọn tên nhân viên --" : "Chưa có Người lập thuộc bộ phận này" }),
+                employeeList.map((name) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: name, children: name }, name))
+              ]
+            }),
+            selectedEmployee && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "mt-3 text-sm text-green-800 bg-green-50 border border-green-200 rounded-xl px-3 py-2", children: [
+              "Đang khai định hướng riêng cho: ",
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: selectedEmployee })
             ] })
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex border-b border-gray-200 mb-6 bg-gray-50 p-1.5 rounded-xl", children: [
@@ -21961,13 +22309,14 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
               "Ki\u1EBFn th\u1EE9c \u0111\u1ECBnh h\u01B0\u1EDBng ",
               activeSubTab === "checklist" ? "CHECKLIST" : "K\u1EBE HO\u1EA0CH",
               " cho",
-              department === "business" ? " B\u1ED9 Ph\u1EADn Kinh Doanh" : department === "accounting" ? " B\u1ED9 Ph\u1EADn K\u1EBF To\xE1n" : " B\u1ED9 Ph\u1EADn Kho V\u1EADn"
+              department === "business" ? " Bộ Phận Kinh Doanh" : department === "accounting" ? " Bộ Phận Kế Toán" : department === "logistics" ? " Bộ Phận Kho Vận" : " Bộ Phận SOP"
             ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-gray-500 mb-3 leading-relaxed", children: activeSubTab === "checklist" ? "N\u1ED9i dung n\xE0y d\xF9ng \u0111\u1EC3 Huy\u1EC1n AI soi chi\u1EBFu, ki\u1EC3m tra chu\u1EA9n h\xF3a v\xE0 \u0111\xE1nh gi\xE1 khi nh\xE2n vi\xEAn l\u1EADp/l\u01B0u Checklist th\xE1ng c\u1EE7a b\u1ED9 ph\u1EADn t\u01B0\u01A1ng \u1EE9ng." : "N\u1ED9i dung n\xE0y s\u1EBD \u0111\u01B0\u1EE3c cung c\u1EA5p cho Huy\u1EC1n AI l\xE0m tri th\u1EE9c n\u1EC1n t\u1EA3ng \u0111\u1EC3 ph\xE2n t\xEDch \u0111\u1ED9 ch\xEDnh x\xE1c, t\xEDnh t\u01B0\u01A1ng h\u1EE3p v\xE0 soi chi\u1EBFu t\u1ED5ng quan K\u1EBF ho\u1EA1ch tu\u1EA7n." }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-gray-500 mb-3 leading-relaxed", children: activeSubTab === "checklist" ? `Nội dung Checklist riêng của ${selectedEmployee || "nhân viên đang chọn"}. AI chỉ dùng nội dung này khi phân tích đúng người lập.` : `Nội dung Định hướng Kế hoạch tuần riêng của ${selectedEmployee || "nhân viên đang chọn"}. AI lấy trực tiếp bản ghi này theo Bộ phận + Người lập, không dò tên trong văn bản chung.` }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
               "textarea",
               {
                 value: activeSubTab === "checklist" ? checklistContent : planContent,
+                disabled: !selectedEmployee,
                 onChange: (e) => {
                   if (activeSubTab === "checklist") {
                     setChecklistContent(e.target.value);
@@ -21975,8 +22324,8 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
                     setPlanContent(e.target.value);
                   }
                 },
-                className: "w-full min-h-[320px] p-4 border border-gray-300 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none resize-y text-gray-800 font-sans leading-relaxed shadow-inner",
-                placeholder: activeSubTab === "checklist" ? "H\xE3y nh\u1EADp c\xE1c \u0111\u1EA7u m\u1EE5c checklist quy chu\u1EA9n, c\xF4ng th\u1EE9c ki\u1EC3m tra v\xE0 vai tr\xF2 c\xF4ng t\xE1c c\u1EE7a b\u1ED9 ph\u1EADn..." : "H\xE3y nh\u1EADp c\xE1c ki\u1EBFn th\u1EE9c \u0111\u1ECBnh h\u01B0\u1EDBng k\u1EBF ho\u1EA1ch, m\u1EE5c ti\xEAu c\u1ED1t l\xF5i tu\u1EA7n, c\xE1c b\u01B0\u1EDBc x\u1EED l\xFD quy tr\xECnh c\u1EE7a b\u1ED9 ph\u1EADn..."
+                className: "w-full min-h-[320px] p-4 border border-gray-300 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none resize-y text-gray-800 font-sans leading-relaxed shadow-inner disabled:bg-gray-100 disabled:text-gray-400",
+                placeholder: !selectedEmployee ? "Hãy chọn Người lập ở phía trên trước..." : activeSubTab === "checklist" ? `Nhập định hướng Checklist riêng cho ${selectedEmployee}...` : `Nhập mục tiêu, ưu tiên, công việc trọng tâm, deadline và yêu cầu kết quả riêng cho ${selectedEmployee}...`
               }
             )
           ] }),
@@ -21997,7 +22346,7 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
               "button",
               {
                 onClick: () => handleSaveSubContent(activeSubTab),
-                disabled: isSaving,
+                disabled: isSaving || !selectedEmployee,
                 className: `flex items-center gap-2 text-white px-6 py-2.5 rounded-xl transition-all font-bold text-sm shadow-md active:scale-95 disabled:opacity-50 ${activeSubTab === "checklist" ? "bg-purple-600 hover:bg-purple-700 shadow-purple-150" : "bg-indigo-600 hover:bg-indigo-700 shadow-indigo-150"}`,
                 children: [
                   /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Save, { size: 18 }),
@@ -22010,7 +22359,7 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "bg-white rounded-2xl shadow-sm border border-gray-200 p-6", children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h2", { className: "text-lg font-bold text-gray-900 mb-1 flex items-center gap-2", children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Key, { className: "text-purple-600", size: 22 }),
-            " C\xE0i \u0110\u1EB7t AI (Gemini / Kimi)"
+            " Cài Đặt AI (B.AI / Gemini / Kimi)"
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-gray-500 mb-6", children: "Chọn model AI dùng để phân tích kế hoạch và cấu hình API tương ứng. Thiết lập được đồng bộ cho toàn hệ thống." }),
           !isPasswordVerified ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "space-y-4 max-w-md", children: [
@@ -22054,6 +22403,7 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
             /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
               /* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", { className: "block text-sm font-semibold text-gray-700 mb-2", children: "Chọn model AI phân tích kế hoạch" }),
               /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", { value: aiProvider, onChange: (e) => setAiProvider(e.target.value), className: "w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none bg-white font-semibold text-gray-800", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "bai", children: "B.AI - DeepSeek V4 Flash (Mặc định)" }),
                 /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "gemini", children: "Gemini AI" }),
                 /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "kimi", children: "Kimi AI - IDECO Worker" })
               ] })
@@ -22066,11 +22416,45 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
                   type: "text",
                   value: backupApiKey,
                   onChange: (e) => setBackupApiKey(e.target.value),
-                  placeholder: "D\xE1n API Key m\u1EDBi ch\xE9p t\u1EEB Google AI Studio...",
+                  placeholder: "Dán API Key mới chép từ Google AI Studio...",
                   className: "w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none font-mono text-sm text-gray-800 shadow-inner bg-gray-50"
                 }
               ),
               /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-gray-400 mt-2", children: "API Key Gemini phải đang hoạt động trên Google AI Studio." })
+            ] }) : aiProvider === "bai" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "space-y-4", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "p-4 bg-blue-50 border border-blue-200 rounded-xl", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "font-bold text-blue-900", children: "B.AI → DeepSeek V4 Flash" }),
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-blue-700 mt-1", children: "CONFIG_VERSION 7 · SSE streaming · tự xoay F01/F02/F03 khi 401/403/429, quota hoặc credit." })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "grid md:grid-cols-2 gap-4", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", { className: "block text-sm font-semibold text-gray-700 mb-2", children: "B.AI Base URL" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { type: "url", value: baiBaseUrl, onChange: (e) => setBaiBaseUrl(e.target.value), placeholder: DEFAULT_BAI_BASE_URL, className: "w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-mono text-sm text-gray-800 bg-gray-50" })
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", { className: "block text-sm font-semibold text-gray-700 mb-2", children: "Model ID" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { type: "text", value: baiModel, onChange: (e) => setBaiModel(e.target.value), placeholder: DEFAULT_BAI_MODEL, className: "w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-mono text-sm text-gray-800 bg-gray-50" })
+                ] })
+              ] }),
+              ...[
+                ["F01", baiApiKeyF01, setBaiApiKeyF01, "B.AI API Key F01 (mặc định)"],
+                ["F02", baiApiKeyF02, setBaiApiKeyF02, "B.AI API Key F02 (dự phòng)"],
+                ["F03", baiApiKeyF03, setBaiApiKeyF03, "B.AI API Key F03 (dự phòng)"]
+              ].map(([slot, value, setter, label]) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", { className: "block text-sm font-semibold text-gray-700 mb-2", children: label }),
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { type: "password", value, onChange: (e) => setter(e.target.value), placeholder: `Nhập khóa ${slot}...`, className: "w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-mono text-sm text-gray-800 bg-gray-50" })
+              ] }, slot)),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "grid md:grid-cols-2 gap-4 border-t pt-4", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", { className: "block text-sm font-semibold text-gray-700 mb-2", children: "DeepSeek chính chủ API Key (tùy chọn)" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { type: "password", value: deepseekApiKey, onChange: (e) => setDeepseekApiKey(e.target.value), placeholder: "Dùng khi B.AI lỗi...", className: "w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-mono text-sm text-gray-800 bg-gray-50" })
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", { className: "block text-sm font-semibold text-gray-700 mb-2", children: "Grok API Key (tùy chọn)" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { type: "password", value: grokApiKey, onChange: (e) => setGrokApiKey(e.target.value), placeholder: "Dùng khi B.AI + DeepSeek lỗi...", className: "w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-mono text-sm text-gray-800 bg-gray-50" })
+                ] })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-gray-500", children: "Chuỗi dự phòng: B.AI → DeepSeek chính chủ (deepseek-v4-flash) → Grok (grok-4.5) → Gemini. Nếu chưa nhập khóa DeepSeek/Grok, hệ thống tự bỏ qua nhánh đó." })
             ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "space-y-4", children: [
               /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
                 /* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", { className: "block text-sm font-semibold text-gray-700 mb-2", children: "Kimi API Endpoint" }),
@@ -22079,7 +22463,7 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
               /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
                 /* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", { className: "block text-sm font-semibold text-gray-700 mb-2", children: "Kimi API KEY" }),
                 /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { type: "password", value: kimiApiKey, onChange: (e) => setKimiApiKey(e.target.value), placeholder: "Nhập Kimi API Key...", className: "w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none font-mono text-sm text-gray-800 shadow-inner bg-gray-50" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-gray-400 mt-2", children: "Kimi AI sẽ được dùng cho toàn bộ chức năng Huyền phân tích kế hoạch khi model này được chọn." })
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-gray-400 mt-2", children: "Kimi vẫn được giữ để tương thích cấu hình cũ, nhưng V7 mặc định chuyển sang B.AI." })
               ] })
             ] }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex justify-end gap-3 border-t pt-5", children: [
@@ -22232,44 +22616,47 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
     const [departmentChecklistKnowledge, setDepartmentChecklistKnowledge] = (0, import_react3.useState)("");
     const [departmentPlanKnowledge, setDepartmentPlanKnowledge] = (0, import_react3.useState)("");
     (0, import_react3.useEffect)(() => {
-      if (plan.department) {
-        const normDept = plan.department.toLowerCase().trim();
-        let depKey = "";
-        if (normDept.includes("kinh doanh")) {
-          depKey = "business";
-        } else if (normDept.includes("k\u1EBF to\xE1n")) {
-          depKey = "accounting";
-        } else if (normDept.includes("kho v\u1EADn") || normDept.includes("kho van")) {
-          depKey = "logistics";
-        }
-        if (depKey) {
-          const kbRef = ref(db, `settings/knowledgeBase/${depKey}`);
-          get(kbRef).then((snap) => {
-            if (snap.exists()) {
-              const val = snap.val();
-              if (typeof val === "object" && val !== null) {
-                setDepartmentChecklistKnowledge(val.checklist || "");
-                setDepartmentPlanKnowledge(val.plan || "");
-              } else if (typeof val === "string") {
-                setDepartmentChecklistKnowledge(val);
-                setDepartmentPlanKnowledge(val);
-              } else {
-                setDepartmentChecklistKnowledge("");
-                setDepartmentPlanKnowledge("");
-              }
-            } else {
-              setDepartmentChecklistKnowledge("");
-              setDepartmentPlanKnowledge("");
+      let isCancelled = false;
+      // Chong ro ri state: doi Nguoi lap la xoa ngay dinh huong cu truoc khi tai ban ghi moi.
+      setDepartmentChecklistKnowledge("");
+      setDepartmentPlanKnowledge("");
+      const loadEmployeeSpecificKnowledge = async () => {
+        const depKey = getDepartmentKeyFromLabel(plan.department || "");
+        const employeeName = String(plan.employeeName || "").trim();
+        if (!depKey || !employeeName) return;
+        try {
+          const employeeKey = getEmployeeDirectionKey(employeeName);
+          const directionRef = ref(db, `settings/employeeDirections/${depKey}/${employeeKey}`);
+          const snap = await get(directionRef);
+          if (isCancelled) return;
+          if (snap.exists()) {
+            const val = snap.val() || {};
+            // Bao ve chong nham: ten luu trong ban ghi phai khop TOAN BO ho ten nguoi lap, GIU DAU.
+            const savedName = String(val.employeeName || "").trim();
+            if (savedName && normalizeEmployeeIdentity(savedName) !== normalizeEmployeeIdentity(employeeName)) {
+              console.warn("Bo qua dinh huong vi ten trong ban ghi khong khop nguoi lap", { savedName, employeeName });
+              return;
             }
-          }).catch((err) => console.error(err));
-        } else {
-          setDepartmentChecklistKnowledge("");
-          setDepartmentPlanKnowledge("");
+            setDepartmentChecklistKnowledge(String(val.checklist || ""));
+            setDepartmentPlanKnowledge(String(val.plan || ""));
+          }
+        } catch (err) {
+          if (!isCancelled) {
+            console.error("Khong the tai dinh huong rieng cua nguoi lap:", err);
+            setDepartmentChecklistKnowledge("");
+            setDepartmentPlanKnowledge("");
+          }
         }
-      }
-    }, [plan.department]);
+      };
+      loadEmployeeSpecificKnowledge();
+      return () => { isCancelled = true; };
+    }, [plan.department, plan.employeeName]);
     const handleHuyenAiFeedback = async () => {
       if (!ensureDepartmentConfigured()) return;
+      if (!String(plan.employeeName || "").trim()) {
+        showAlert("Thiếu Người lập", "Vui lòng nhập/chọn đúng tên Người lập trước khi dùng AI phân tích.");
+        return;
+      }
       if (!feedbackModal.taskId) return;
       setIsAiFeedbackLoading(true);
       try {
@@ -22326,6 +22713,10 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
     const [planFeedbackModal, setPlanFeedbackModal] = (0, import_react3.useState)({ isOpen: false, feedbackText: "" });
     const handlePlanAiFeedback = async () => {
       if (!ensureDepartmentConfigured()) return;
+      if (!String(plan.employeeName || "").trim()) {
+        showAlert("Thiếu Người lập", "Vui lòng nhập/chọn đúng tên Người lập trước khi dùng AI phân tích kế hoạch.");
+        return;
+      }
       setIsPlanAiLoading(true);
       setPlanFeedbackModal({ isOpen: true, feedbackText: "" });
       try {
@@ -22352,6 +22743,10 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
     };
     const handleChecklistAiFeedback = async () => {
       if (!ensureDepartmentConfigured()) return;
+      if (!String(plan.employeeName || "").trim()) {
+        showAlert("Thiếu Người lập", "Vui lòng nhập/chọn đúng tên Người lập trước khi dùng AI phân tích Checklist.");
+        return;
+      }
       setIsChecklistAiLoading(true);
       setChecklistFeedbackModal({ isOpen: true, feedbackText: "" });
       try {
@@ -23581,7 +23976,8 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
                     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "", children: "-- Ch\u1ECDn b\u1ED9 ph\u1EADn --" }),
                     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "B\u1ED9 ph\u1EADn k\u1EBF to\xE1n", children: "B\u1ED9 ph\u1EADn k\u1EBF to\xE1n" }),
                     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "B\u1ED9 Ph\xE2n Kho V\u1EADn", children: "B\u1ED9 Ph\xE2n Kho V\u1EADn" }),
-                    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "B\u1ED9 Ph\u1EADn Kinh Doanh", children: "B\u1ED9 Ph\u1EADn Kinh Doanh" })
+                    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "B\u1ED9 Ph\u1EADn Kinh Doanh", children: "B\u1ED9 Ph\u1EADn Kinh Doanh" }),
+                    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "Bộ phận SOP", children: "Bộ phận SOP" })
                   ]
                 }
               )
@@ -24482,26 +24878,27 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
             }
           )
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "overflow-y-auto p-6 flex-1 min-h-[300px]", children: isChecklistAiLoading ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col items-center justify-center h-64 space-y-4", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "overflow-y-auto p-6 flex-1 min-h-[300px]", children: isChecklistAiLoading ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col items-center justify-center h-64 space-y-5 w-full", children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-gray-500 font-medium", children: "Huy\u1EC1n AI \u0111ang ph\xE2n t\xEDch to\xE0n b\u1ED9 checklist..." })
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-gray-500 font-medium", children: "Huy\u1EC1n AI \u0111ang ph\xE2n t\xEDch to\xE0n b\u1ED9 checklist..." }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "w-full max-w-4xl overflow-hidden rounded-xl border border-purple-200 bg-gradient-to-r from-purple-50 via-white to-indigo-50 py-3 shadow-inner", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "ideco-ai-guidance-track px-4 text-lg md:text-2xl font-extrabold text-purple-800 tracking-wide", children: "B\u1ea1n h\u00e3y ch\u1edd ch\u00fat ,Huy\u1ec1n ki\u1ec3m tra k\u1ef9 cho nh\u00e9 - h\u00e3y \u0111\u1ecdc l\u1eddi khuy\u00ean n\u00e0y:  B\u1ea1n nh\u1edb m\u1ee5c ti\u00eau tu\u1ea7n ph\u1ea3i n\u00ean theo m\u1ee5c ti\u00eau c\u00f4ng ty thi\u1ebft l\u1eadp l\u00e0m c\u0103n c\u1ee9 nh\u00e9- m\u1ee5c ti\u00eau th\u01b0\u1eddng kh\u00f4ng qu\u00e1 nhi\u1ec1u nh\u01b0ng c\u1ea7n SMART: c\u1ee5 th\u1ec3, \u0111o l\u01b0\u1eddng \u0111\u01b0\u1ee3c c\u00f3 t\u00ednh th\u1eddi gian c\u1ee5 th\u1ec3 - Vi\u1ec7c l\u1eadp k\u1ebf ho\u1ea1ch trong tu\u1ea7n ph\u1ea3i n\u1ed7 l\u1ef1c l\u00e0m vi\u1ec7c g\u00ec \u0111\u1ec3 \u0111\u1eb7t m\u1ee5c ti\u00eau m\u00ecnh vi\u1ebft ra nh\u00e9 - ph\u1ea3i bi\u1ebft m\u1ee5c ti\u00eau n\u00e0o \u01b0u ti\u00ean v\u00e0 ph\u1ea3i t\u1ea1o k\u1ebft qu\u1ea3 c\u1ee5 th\u1ec3 \u0111\u1ec3 ph\u00e1t tri\u1ec3n b\u1ea3n th\u00e2n v\u00e0 c\u00f4ng vi\u1ec7c  - c\u00f4ng vi\u1ec7c n\u00e0o cho m\u1ee5c ti\u00eau \u0111\u00f3 - \u0111\u1eebng vi\u1ebft theo ki\u1ec3u m\u00f4 t\u1ea3 c\u00f4ng vi\u1ec7c chung chung , kh\u00f4ng c\u1ee5 th\u1ec3 \u0111\u1ec3 \u0111\u1ea1t m\u1ee5c ti\u00eau  th\u00ec b\u1ea1n kh\u00f4ng th\u1ec3 t\u1ea1o \u0111\u1ed9ng l\u1ef1c ph\u1ea3i ho\u00e0n th\u00e0nh t\u1ee9c l\u00e0 KPI c\u1ee7a b\u1ea1n s\u1ebd kh\u00f3 t\u0103ng tr\u01b0\u1edfng t\u1ed1t  - M\u1ed7i vi\u1ec7c ph\u1ea3i lu\u00f4n xem l\u1ea1i c\u1ea9n th\u1eadn - theo d\u00f5i - h\u1eb9n b\u00e1o n\u1ebfu qu\u00ean- v\u00e0 h\u00e3y ki\u1ec3m tra c\u00f9ng nhau ho\u00e0n th\u00e0nh m\u1ee5c ti\u00eau chung - Doanh thu - Kh\u00e1nh h\u00e0ng  - C\u00f4ng n\u1ee3 - Khai b\u00e1o s\u1ed1 li\u1ec7u - Ki\u1ec3m so\u00e1t SOP th\u1ebf n\u00e0o tr\u00e1nh ph\u1ea1t - truy xu\u1ea5t ch\u00ednh x\u00e1c  : t\u1ea5t ph\u1ea3i \u0111\u1eb7t m\u1ee5c ti\u00eau c\u1ee5 th\u1ec3 - X\u1eed l\u00fd vi\u1ec7c ph\u1ea3i \u0111\u1eb7t m\u1ee5c ti\u00eau dealinde ph\u1ea3i xong  c\u1ee5 th\u1ec3: H\u00e3y l\u00e0m t\u1ed1t vi\u1ec7c n\u00e0y l\u00e0 b\u1ea1n \u0111\u00e3 l\u00e0 ng\u01b0\u1eddi \u0110\u1eb2NG C\u1ea4P- TH\u00c0NH C\u00d4NG  \u0111\u00f3" }) })
         ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "grid grid-cols-1 md:grid-cols-2 gap-6 h-full items-stretch", children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col space-y-4 border-b md:border-b-0 md:border-r border-gray-200 pb-6 md:pb-0 md:pr-6 text-left", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", { className: "font-bold text-gray-800 text-sm flex items-center gap-2 uppercase tracking-wider pb-1 border-b border-gray-100", children: "\u{1F4CB} Th\xF4ng tin c\xE0i \u0111\u1EB7t \u0111\u1ECBnh h\u01B0\u1EDBng b\u1ED9 ph\u1EADn" }),
-            plan.employeeName && departmentChecklistKnowledge && extractRulesForEmployee(departmentChecklistKnowledge, plan.employeeName) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "p-4 bg-amber-50/80 rounded-xl border border-amber-200/60 shadow-sm animate-in fade-in", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", { className: "font-bold text-gray-800 text-sm flex items-center gap-2 uppercase tracking-wider pb-1 border-b border-gray-100", children: "📋 Định hướng RIÊNG (nếu có) - dữ liệu bổ sung" }),
+            plan.employeeName && departmentChecklistKnowledge && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "p-4 bg-amber-50/80 rounded-xl border border-amber-200/60 shadow-sm animate-in fade-in", children: [
               /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h5", { className: "text-xs font-bold text-amber-800 uppercase tracking-wide mb-2 flex items-center gap-1.5 font-sans", children: [
                 /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Sparkles, { size: 14, className: "text-amber-600" }),
                 "QUY \u0110\u1ECANH RI\xCANG CHO: ",
                 plan.employeeName
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "text-sm text-gray-750 whitespace-pre-wrap leading-relaxed pl-3 border-l-2 border-amber-350 italic", children: extractRulesForEmployee(departmentChecklistKnowledge, plan.employeeName) })
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "text-sm text-gray-750 whitespace-pre-wrap leading-relaxed pl-3 border-l-2 border-amber-350 italic", children: departmentChecklistKnowledge })
             ] }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "p-4 bg-gray-50 rounded-xl border border-gray-200 flex-1 overflow-y-auto max-h-[35vh] md:max-h-[50vh]", children: [
               /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h5", { className: "text-xs font-bold text-gray-500 uppercase tracking-wide mb-2", children: [
-                "CHUNG CHO TO\xC0N B\u1ED8 PH\u1EACN: ",
+                "ĐỊNH HƯỚNG RIÊNG ĐANG ÁP DỤNG: ",
                 plan.department || "Ch\u01B0a ch\u1ECDn b\u1ED9 ph\u1EADn"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "text-sm text-gray-600 whitespace-pre-wrap leading-relaxed", children: plan.employeeName ? getCleanedRulesForEmployee(departmentChecklistKnowledge, plan.employeeName) : departmentChecklistKnowledge || "Ch\u01B0a thi\u1EBFt l\u1EADp \u0111\u1ECBnh h\u01B0\u1EDBng trong ph\u1EA7n c\xE0i \u0111\u1EB7t." })
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "text-sm text-gray-600 whitespace-pre-wrap leading-relaxed", children: departmentChecklistKnowledge || "Chưa thiết lập định hướng Checklist RIÊNG cho Người lập này trong phần Cài đặt." })
             ] })
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col space-y-4 text-left", children: [
@@ -24536,26 +24933,27 @@ K\u1EBF ho\u1EA1ch l\xE0 t\u1ED1t cho m\xECnh, l\xE0 gi\xFAp m\xECnh ki\u1EC3m s
             }
           )
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "overflow-y-auto p-6 flex-1 min-h-[300px]", children: isPlanAiLoading ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col items-center justify-center h-64 space-y-4", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "overflow-y-auto p-6 flex-1 min-h-[300px]", children: isPlanAiLoading ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col items-center justify-center h-64 space-y-5 w-full", children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-gray-500 font-medium", children: "Huy\u1EC1n Tr\u1EE3 l\xFD Gi\xE1m \u0110\u1ED1c \u0111ang r\xE0 so\xE1t & b\xE1m s\xE1t \u0111\u1ECBnh h\u01B0\u1EDBng b\u1ED9 ph\u1EADn..." })
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-gray-500 font-medium", children: "Huyền đang scan toàn bộ mục tiêu, công việc, kết quả mong đợi, deadline và lỗi trình bày..." }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "w-full max-w-4xl overflow-hidden rounded-xl border border-purple-200 bg-gradient-to-r from-purple-50 via-white to-indigo-50 py-3 shadow-inner", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "ideco-ai-guidance-track px-4 text-lg md:text-2xl font-extrabold text-purple-800 tracking-wide", children: "B\u1ea1n h\u00e3y ch\u1edd ch\u00fat ,Huy\u1ec1n ki\u1ec3m tra k\u1ef9 cho nh\u00e9 - h\u00e3y \u0111\u1ecdc l\u1eddi khuy\u00ean n\u00e0y:  B\u1ea1n nh\u1edb m\u1ee5c ti\u00eau tu\u1ea7n ph\u1ea3i n\u00ean theo m\u1ee5c ti\u00eau c\u00f4ng ty thi\u1ebft l\u1eadp l\u00e0m c\u0103n c\u1ee9 nh\u00e9- m\u1ee5c ti\u00eau th\u01b0\u1eddng kh\u00f4ng qu\u00e1 nhi\u1ec1u nh\u01b0ng c\u1ea7n SMART: c\u1ee5 th\u1ec3, \u0111o l\u01b0\u1eddng \u0111\u01b0\u1ee3c c\u00f3 t\u00ednh th\u1eddi gian c\u1ee5 th\u1ec3 - Vi\u1ec7c l\u1eadp k\u1ebf ho\u1ea1ch trong tu\u1ea7n ph\u1ea3i n\u1ed7 l\u1ef1c l\u00e0m vi\u1ec7c g\u00ec \u0111\u1ec3 \u0111\u1eb7t m\u1ee5c ti\u00eau m\u00ecnh vi\u1ebft ra nh\u00e9 - ph\u1ea3i bi\u1ebft m\u1ee5c ti\u00eau n\u00e0o \u01b0u ti\u00ean v\u00e0 ph\u1ea3i t\u1ea1o k\u1ebft qu\u1ea3 c\u1ee5 th\u1ec3 \u0111\u1ec3 ph\u00e1t tri\u1ec3n b\u1ea3n th\u00e2n v\u00e0 c\u00f4ng vi\u1ec7c  - c\u00f4ng vi\u1ec7c n\u00e0o cho m\u1ee5c ti\u00eau \u0111\u00f3 - \u0111\u1eebng vi\u1ebft theo ki\u1ec3u m\u00f4 t\u1ea3 c\u00f4ng vi\u1ec7c chung chung , kh\u00f4ng c\u1ee5 th\u1ec3 \u0111\u1ec3 \u0111\u1ea1t m\u1ee5c ti\u00eau  th\u00ec b\u1ea1n kh\u00f4ng th\u1ec3 t\u1ea1o \u0111\u1ed9ng l\u1ef1c ph\u1ea3i ho\u00e0n th\u00e0nh t\u1ee9c l\u00e0 KPI c\u1ee7a b\u1ea1n s\u1ebd kh\u00f3 t\u0103ng tr\u01b0\u1edfng t\u1ed1t  - M\u1ed7i vi\u1ec7c ph\u1ea3i lu\u00f4n xem l\u1ea1i c\u1ea9n th\u1eadn - theo d\u00f5i - h\u1eb9n b\u00e1o n\u1ebfu qu\u00ean- v\u00e0 h\u00e3y ki\u1ec3m tra c\u00f9ng nhau ho\u00e0n th\u00e0nh m\u1ee5c ti\u00eau chung - Doanh thu - Kh\u00e1nh h\u00e0ng  - C\u00f4ng n\u1ee3 - Khai b\u00e1o s\u1ed1 li\u1ec7u - Ki\u1ec3m so\u00e1t SOP th\u1ebf n\u00e0o tr\u00e1nh ph\u1ea1t - truy xu\u1ea5t ch\u00ednh x\u00e1c  : t\u1ea5t ph\u1ea3i \u0111\u1eb7t m\u1ee5c ti\u00eau c\u1ee5 th\u1ec3 - X\u1eed l\u00fd vi\u1ec7c ph\u1ea3i \u0111\u1eb7t m\u1ee5c ti\u00eau dealinde ph\u1ea3i xong  c\u1ee5 th\u1ec3: H\u00e3y l\u00e0m t\u1ed1t vi\u1ec7c n\u00e0y l\u00e0 b\u1ea1n \u0111\u00e3 l\u00e0 ng\u01b0\u1eddi \u0110\u1eb2NG C\u1ea4P- TH\u00c0NH C\u00d4NG  \u0111\u00f3" }) })
         ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "grid grid-cols-1 md:grid-cols-2 gap-6 h-full items-stretch", children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col space-y-4 border-b md:border-b-0 md:border-r border-gray-200 pb-6 md:pb-0 md:pr-6 text-left", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", { className: "font-bold text-gray-800 text-sm flex items-center gap-2 uppercase tracking-wider pb-1 border-b border-gray-100", children: "\u{1F4CB} Th\xF4ng tin c\xE0i \u0111\u1EB7t \u0111\u1ECBnh h\u01B0\u1EDBng b\u1ED9 ph\u1EADn" }),
-            plan.employeeName && departmentPlanKnowledge && extractRulesForEmployee(departmentPlanKnowledge, plan.employeeName) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "p-4 bg-amber-50/80 rounded-xl border border-amber-200/60 shadow-sm animate-in fade-in", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", { className: "font-bold text-gray-800 text-sm flex items-center gap-2 uppercase tracking-wider pb-1 border-b border-gray-100", children: "📋 Định hướng RIÊNG (nếu có) - dữ liệu bổ sung" }),
+            plan.employeeName && departmentPlanKnowledge && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "p-4 bg-amber-50/80 rounded-xl border border-amber-200/60 shadow-sm animate-in fade-in", children: [
               /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h5", { className: "text-xs font-bold text-amber-800 uppercase tracking-wide mb-2 flex items-center gap-1.5 font-sans", children: [
                 /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Sparkles, { size: 14, className: "text-amber-600" }),
                 "QUY \u0110\u1ECANH RI\xCANG CHO: ",
                 plan.employeeName
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "text-sm text-gray-750 whitespace-pre-wrap leading-relaxed pl-3 border-l-2 border-amber-300 italic", children: extractRulesForEmployee(departmentPlanKnowledge, plan.employeeName) })
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "text-sm text-gray-750 whitespace-pre-wrap leading-relaxed pl-3 border-l-2 border-amber-300 italic", children: departmentPlanKnowledge })
             ] }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "p-4 bg-gray-55/70 rounded-xl border border-gray-200 flex-1 overflow-y-auto max-h-[35vh] md:max-h-[50vh]", children: [
               /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h5", { className: "text-xs font-bold text-gray-500 uppercase tracking-wide mb-2", children: [
-                "CHUNG CHO TO\xC0N B\u1ED8 PH\u1EACN: ",
+                "ĐỊNH HƯỚNG RIÊNG ĐANG ÁP DỤNG: ",
                 plan.department || "Ch\u01B0a ch\u1ECDn b\u1ED9 ph\u1EADn"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "text-sm text-gray-600 whitespace-pre-wrap leading-relaxed", children: plan.employeeName ? getCleanedRulesForEmployee(departmentPlanKnowledge, plan.employeeName) : departmentPlanKnowledge || "Ch\u01B0a thi\u1EBFt l\u1EADp \u0111\u1ECBnh h\u01B0\u1EDBng trong ph\u1EA7n c\xE0i \u0111\u1EB7t." })
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "text-sm text-gray-600 whitespace-pre-wrap leading-relaxed", children: departmentPlanKnowledge || "Chưa thiết lập định hướng Kế hoạch RIÊNG cho Người lập này trong phần Cài đặt." })
             ] })
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col space-y-4 text-left", children: [
