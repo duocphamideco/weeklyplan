@@ -20801,6 +20801,13 @@ Y\xEAu c\u1EA7u ng\u1EAFn g\u1ECDn:
     if (normDept === "sop" || normDept.includes("bo phan sop") || normDept.includes("quy trinh sop")) return "sop";
     return "";
   };
+  var getDepartmentLabelFromKey = (key) => {
+    if (key === "business") return "Bộ Phận Kinh Doanh";
+    if (key === "accounting") return "Bộ phận kế toán";
+    if (key === "logistics") return "Bộ Phân Kho Vận";
+    if (key === "sop") return "Bộ phận SOP";
+    return "";
+  };
   var normalizeEmployeeIdentity = (value) => {
     return String(value || "")
       .replace(/[\*_`#>\[\](){}]/g, " ")
@@ -21990,35 +21997,17 @@ Kế hoạch là tốt cho mình, là giúp mình kiểm soát nhiệm vụ giao
       const loadEmployees = async () => {
         setIsLoadingEmployees(true);
         try {
-          const [registrySnap, plansSnap, directionsSnap] = await Promise.all([
-            get(ref(db, `settings/employees/${department}`)),
-            get(ref(db, "weekly_plans")),
-            get(ref(db, `settings/employeeDirections/${department}`))
-          ]);
+          const registrySnap = await get(ref(db, "settings/officialEmployeesGlobalV3"));
           const names = new Map();
+          // NGUON DUY NHAT: danh muc TEN NHAN VIEN CHUNG, KHONG GAN BO PHAN.
+          // Bo phan duoc chon doc lap o dropdown Bo phan trong man hinh Lap ke hoach.
+          // Tuyet doi khong lay ten tu weekly_plans, dinh huong cu, officialEmployeesV2 hay localStorage.
           if (registrySnap.exists()) {
             const registryData = registrySnap.val() || {};
             Object.values(registryData).forEach((item) => {
-              const name = String((item && item.employeeName) || "").trim();
+              const name = String((item && item.employeeName) || "").replace(/\s+/g, " ").trim();
               if (name) names.set(normalizeEmployeeIdentity(name), name);
             });
-          } else {
-            // Goi y du lieu cu de khoi phai nhap lai. Bam Luu moi thanh danh muc chinh thuc.
-            if (plansSnap.exists()) {
-              const plansData = plansSnap.val() || {};
-              Object.values(plansData).forEach((p) => {
-                const name = String((p && p.employeeName) || "").trim();
-                const depKey = getDepartmentKeyFromLabel((p && p.department) || "");
-                if (name && depKey === department) names.set(normalizeEmployeeIdentity(name), name);
-              });
-            }
-            if (directionsSnap.exists()) {
-              const saved = directionsSnap.val() || {};
-              Object.values(saved).forEach((item) => {
-                const name = String((item && item.employeeName) || "").trim();
-                if (name) names.set(normalizeEmployeeIdentity(name), name);
-              });
-            }
           }
           const list = Array.from(names.values()).sort((a, b) => a.localeCompare(b, "vi"));
           setEmployeeList(list);
@@ -22046,7 +22035,7 @@ Kế hoạch là tốt cho mình, là giúp mình kiểm soát nhiệm vụ giao
         }
       };
       loadEmployees();
-    }, [department]);
+    }, []);
     (0, import_react3.useEffect)(() => {
       let isCancelled = false;
       // Xoa noi dung cu NGAY khi doi bo phan/nhan vien de khong bao gio hien nham nguoi truoc.
@@ -22141,9 +22130,21 @@ Kế hoạch là tốt cho mình, là giúp mình kiểm soát nhiệm vụ giao
         cleanNames.forEach((name) => {
           const employeeKey = getEmployeeDirectionKey(name);
           if (!employeeKey) return;
-          payload[employeeKey] = { employeeName: name, department, updatedAt };
+          payload[employeeKey] = { employeeName: name, updatedAt };
         });
-        await set(ref(db, `settings/employees/${department}`), payload);
+        // GHI DE TOAN BO danh muc ten chung. Ten nhan vien KHONG mang thong tin bo phan.
+        await set(ref(db, "settings/officialEmployeesGlobalV3"), payload);
+        // XOA TOAN BO CAC NGUON TEN CU de dropdown khong the bi gan/lay nham bo phan nua.
+        // Ke hoach lich su trong weekly_plans KHONG bi xoa.
+        try { await remove(ref(db, "settings/officialEmployeesV2")); } catch (e) { console.warn("Khong the xoa officialEmployeesV2 cu:", e); }
+        try { await remove(ref(db, "settings/employees")); } catch (e) { console.warn("Khong the xoa settings/employees cu:", e); }
+        try {
+          ["business", "accounting", "logistics", "sop"].forEach((depKey) => {
+            localStorage.removeItem(`ideco_employee_list_${depKey}`);
+            localStorage.removeItem(`employee_list_${depKey}`);
+          });
+        } catch (e) {
+        }
         const sorted = [...cleanNames].sort((a, b) => a.localeCompare(b, "vi"));
         setEmployeeList(sorted);
         setEmployeeDrafts(sorted.map((name, index) => ({
@@ -22154,7 +22155,7 @@ Kế hoạch là tốt cho mình, là giúp mình kiểm soát nhiệm vụ giao
           if (prev && sorted.some((name) => normalizeEmployeeIdentity(name) === normalizeEmployeeIdentity(prev))) return prev;
           return sorted[0] || "";
         });
-        alert(`Đã lưu ${sorted.length} nhân viên chính thức cho ${department === "business" ? "Bộ phận Kinh Doanh" : department === "accounting" ? "Bộ phận Kế Toán" : department === "logistics" ? "Bộ phận Kho Vận" : "Bộ phận SOP"}.`);
+        alert(`Đã lưu ${sorted.length} tên nhân viên chính thức. Danh mục tên này dùng chung và KHÔNG gắn với bộ phận; bộ phận sẽ được chọn riêng khi lập kế hoạch.`);
       } catch (err) {
         console.error("Loi khi luu danh sach nhan vien:", err);
         alert("Có lỗi khi lưu danh sách nhân viên!");
@@ -22337,10 +22338,10 @@ Kế hoạch là tốt cho mình, là giúp mình kiểm soát nhiệm vụ giao
             ] })
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "mb-6 p-5 rounded-2xl border border-emerald-200 bg-emerald-50/60", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", { className: "text-base font-extrabold text-emerald-900 mb-1", children: "👥 Danh mục nhân viên chính thức" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-emerald-800 mb-4 leading-relaxed", children: "Khai đúng họ tên nhân viên tại đây. Sau khi LƯU, màn hình Lập kế hoạch sẽ chỉ cho chọn tên từ danh mục này theo đúng bộ phận; AI và Định hướng riêng cũng dùng cùng một tên chuẩn, không còn nhập tự do hoặc đoán tên." }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", { className: "text-base font-extrabold text-emerald-900 mb-1", children: "👥 Danh mục TÊN NHÂN VIÊN dùng chung — không gắn Bộ phận" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-emerald-800 mb-4 leading-relaxed", children: "Khai đúng họ tên nhân viên tại đây. Đây là DANH MỤC TÊN DÙNG CHUNG, hoàn toàn không gắn với Kinh doanh / Kế toán / Kho vận / SOP. Khi bấm LƯU, Firebase sẽ ghi đè toàn bộ danh mục tên chung; ở màn hình Lập kế hoạch, Tên nhân viên và Bộ phận là 2 dropdown độc lập." }),
             isLoadingEmployees ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "py-4 text-sm text-gray-500", children: "Đang tải danh sách nhân viên..." }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "space-y-3", children: [
-              employeeDrafts.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "text-sm text-gray-500 bg-white border border-dashed border-emerald-300 rounded-xl p-4", children: "Chưa có nhân viên. Bấm “+ Thêm nhân viên” để khai tên chính thức." }),
+              employeeDrafts.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "text-sm text-gray-500 bg-white border border-dashed border-emerald-300 rounded-xl p-4", children: "Chưa có danh mục tên nhân viên chính thức. Bấm “+ Thêm nhân viên”, khai tên rồi bấm “Lưu danh sách nhân viên”. Dữ liệu tên cũ và dữ liệu bộ phận cũ không được tự nạp lại." }),
               employeeDrafts.map((row, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex items-center gap-2", children: [
                 /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "w-9 h-10 rounded-lg bg-white border border-emerald-200 flex items-center justify-center text-xs font-bold text-emerald-700 shrink-0", children: index + 1 }),
                 /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
@@ -22389,7 +22390,7 @@ Kế hoạch là tốt cho mình, là giúp mình kiểm soát nhiệm vụ giao
               disabled: isLoadingEmployees || employeeList.length === 0,
               className: "w-full px-4 py-3 border border-indigo-300 rounded-xl bg-white font-bold text-gray-800 focus:ring-2 focus:ring-indigo-500 outline-none disabled:bg-gray-100",
               children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "", children: isLoadingEmployees ? "Đang tải danh sách Người lập..." : employeeList.length ? "-- Chọn tên nhân viên --" : "Chưa có Người lập thuộc bộ phận này" }),
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "", children: isLoadingEmployees ? "Đang tải danh sách Người lập..." : employeeList.length ? "-- Chọn tên nhân viên --" : "Chưa có tên nhân viên trong danh mục chung" }),
                 employeeList.map((name) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: name, children: name }, name))
               ]
             }),
@@ -22728,52 +22729,39 @@ Kế hoạch là tốt cho mình, là giúp mình kiểm soát nhiệm vụ giao
     const [departmentChecklistKnowledge, setDepartmentChecklistKnowledge] = (0, import_react3.useState)("");
     const [departmentPlanKnowledge, setDepartmentPlanKnowledge] = (0, import_react3.useState)("");
     const [officialEmployees, setOfficialEmployees] = (0, import_react3.useState)([]);
+    const [officialEmployeeRecords, setOfficialEmployeeRecords] = (0, import_react3.useState)([]);
     const [isLoadingOfficialEmployees, setIsLoadingOfficialEmployees] = (0, import_react3.useState)(false);
     (0, import_react3.useEffect)(() => {
-      let isCancelled = false;
-      const loadOfficialEmployees = async () => {
-        setOfficialEmployees([]);
-        const depKey = getDepartmentKeyFromLabel(plan.department || "");
-        if (!depKey) {
-          setIsLoadingOfficialEmployees(false);
-          return;
-        }
-        setIsLoadingOfficialEmployees(true);
+      setIsLoadingOfficialEmployees(true);
+      // Lang nghe truc tiep DANH MUC TEN CHUNG. Ten nhan vien KHONG GAN BO PHAN.
+      const employeesRootRef = ref(db, "settings/officialEmployeesGlobalV3");
+      const unsubscribe = onValue(employeesRootRef, (snapshot) => {
         try {
-          const registrySnap = await get(ref(db, `settings/employees/${depKey}`));
-          if (isCancelled) return;
-          const names = new Map();
-          if (registrySnap.exists()) {
-            const registryData = registrySnap.val() || {};
-            Object.values(registryData).forEach((item) => {
-              const name = String((item && item.employeeName) || "").trim();
-              if (name) names.set(normalizeEmployeeIdentity(name), name);
-            });
-          } else {
-            // Tuong thich du lieu cu neu chua luu danh muc chinh thuc.
-            const plansSnap = await get(ref(db, "weekly_plans"));
-            if (isCancelled) return;
-            if (plansSnap.exists()) {
-              Object.values(plansSnap.val() || {}).forEach((p) => {
-                const name = String((p && p.employeeName) || "").trim();
-                const oldDepKey = getDepartmentKeyFromLabel((p && p.department) || "");
-                if (name && oldDepKey === depKey) names.set(normalizeEmployeeIdentity(name), name);
-              });
-            }
-          }
-          setOfficialEmployees(Array.from(names.values()).sort((a, b) => a.localeCompare(b, "vi")));
+          const rootData = snapshot.exists() ? snapshot.val() || {} : {};
+          const recordsMap = new Map();
+          Object.values(rootData).forEach((item) => {
+            const name = String((item && item.employeeName) || "").replace(/\s+/g, " ").trim();
+            if (!name) return;
+            recordsMap.set(normalizeEmployeeIdentity(name), { name });
+          });
+          const allRecords = Array.from(recordsMap.values()).sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "vi"));
+          setOfficialEmployeeRecords(allRecords);
+          setOfficialEmployees(allRecords.map((r) => r.name));
         } catch (err) {
-          if (!isCancelled) {
-            console.error("Khong the tai danh muc nhan vien chinh thuc:", err);
-            setOfficialEmployees([]);
-          }
+          console.error("Khong the tai danh muc nhan vien chinh thuc:", err);
+          setOfficialEmployees([]);
+          setOfficialEmployeeRecords([]);
         } finally {
-          if (!isCancelled) setIsLoadingOfficialEmployees(false);
+          setIsLoadingOfficialEmployees(false);
         }
-      };
-      loadOfficialEmployees();
-      return () => { isCancelled = true; };
-    }, [plan.department]);
+      }, (err) => {
+        console.error("Firebase employee registry listener failed:", err);
+        setOfficialEmployees([]);
+        setOfficialEmployeeRecords([]);
+        setIsLoadingOfficialEmployees(false);
+      });
+      return () => unsubscribe();
+    }, []);
     (0, import_react3.useEffect)(() => {
       let isCancelled = false;
       // Chong ro ri state: doi Nguoi lap la xoa ngay dinh huong cu truoc khi tai ban ghi moi.
@@ -22996,18 +22984,19 @@ Kế hoạch là tốt cho mình, là giúp mình kiểm soát nhiệm vụ giao
       initializeDays(newDate);
     };
     const handleEmployeeNameChange = async (e) => {
-      const selectedName = String(e.target.value || "");
+      const selectedName = String(e.target.value || "").trim();
+      // TEN NHAN VIEN va BO PHAN la 2 truong DOC LAP. Chon ten KHONG duoc tu dong doi bo phan.
       setPlan((prev) => ({ ...prev, employeeName: selectedName }));
-      if (!planId && selectedName.trim() && (!plan.monthlyChecklist || plan.monthlyChecklist.length === 0)) {
+      if (!planId && selectedName && plan.department && (!plan.monthlyChecklist || plan.monthlyChecklist.length === 0)) {
         try {
           const plansRef = ref(db, "weekly_plans");
           const snapshot = await get(plansRef);
           if (snapshot.exists()) {
             const data = snapshot.val();
-            const selectedDepartmentKey = getDepartmentKeyFromLabel(plan.department || "");
+            const effectiveDepartmentKey = getDepartmentKeyFromLabel(plan.department || "");
             const userPlans = Object.values(data).filter((p) => {
               const sameEmployee = normalizeEmployeeIdentity((p && p.employeeName) || "") === normalizeEmployeeIdentity(selectedName);
-              const sameDepartment = getDepartmentKeyFromLabel((p && p.department) || "") === selectedDepartmentKey;
+              const sameDepartment = getDepartmentKeyFromLabel((p && p.department) || "") === effectiveDepartmentKey;
               return sameEmployee && sameDepartment && p.monthlyChecklist && p.monthlyChecklist.length > 0;
             });
             if (userPlans.length > 0) {
@@ -23030,7 +23019,7 @@ Kế hoạch là tốt cho mình, là giúp mình kiểm soát nhiệm vụ giao
         return false;
       }
       if (!String(plan.employeeName || "").trim()) {
-        showAlert("Thiếu tên nhân viên", "Vui lòng chọn đúng tên nhân viên từ danh sách chính thức trong dropdown. Nếu chưa có tên, hãy vào Cài đặt → Danh mục nhân viên chính thức để thêm và lưu.");
+        showAlert("Thiếu tên nhân viên", "Vui lòng chọn đúng tên nhân viên từ danh mục tên chính thức. Tên nhân viên không gắn với Bộ phận; hãy chọn Bộ phận riêng ở dropdown bên cạnh.");
         return false;
       }
       return true;
@@ -24116,17 +24105,20 @@ Kế hoạch là tốt cho mình, là giúp mình kiểm soát nhiệm vụ giao
             /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
               /* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", { className: "block text-sm font-medium text-gray-700 mb-2", children: "Tên nhân viên" }),
               /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
-                value: plan.employeeName,
+                value: plan.employeeName || "",
                 onChange: handleEmployeeNameChange,
-                disabled: !plan.department || isLoadingOfficialEmployees,
+                disabled: isLoadingOfficialEmployees || officialEmployeeRecords.length === 0,
                 className: "w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all bg-white disabled:bg-gray-100 disabled:text-gray-500",
                 children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "", children: !plan.department ? "-- Chọn bộ phận trước --" : isLoadingOfficialEmployees ? "Đang tải danh sách nhân viên..." : officialEmployees.length ? "-- Chọn tên nhân viên --" : "Chưa có nhân viên - vào Cài đặt để thêm" }),
-                  plan.employeeName && !officialEmployees.some((name) => normalizeEmployeeIdentity(name) === normalizeEmployeeIdentity(plan.employeeName)) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: plan.employeeName, children: `${plan.employeeName} (tên kế hoạch cũ)` }),
-                  officialEmployees.map((name) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: name, children: name }, name))
+                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "", children: isLoadingOfficialEmployees ? "Đang tải danh sách nhân viên từ Firebase..." : officialEmployeeRecords.length ? "-- Chọn tên nhân viên --" : "Chưa có nhân viên - vào Cài đặt để thêm" }),
+                  officialEmployeeRecords.map((r) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+                    value: r.name,
+                    children: r.name
+                  }, r.name))
                 ]
               }),
-              plan.department && !isLoadingOfficialEmployees && officialEmployees.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-1.5 text-xs text-amber-600", children: "Chưa có danh mục nhân viên chính thức cho bộ phận này. Vào Cài đặt để thêm tên và bấm Lưu danh sách nhân viên." })
+              plan.employeeName && !isLoadingOfficialEmployees && !officialEmployeeRecords.some((r) => normalizeEmployeeIdentity(r.name) === normalizeEmployeeIdentity(plan.employeeName)) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-1.5 text-xs text-red-600 font-bold", children: "Tên đang lưu trong kế hoạch cũ không còn thuộc Danh mục nhân viên chính thức. Vui lòng chọn lại tên từ danh mục Firebase." }),
+              !isLoadingOfficialEmployees && officialEmployeeRecords.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-1.5 text-xs text-emerald-700 font-medium", children: "Tên nhân viên và Bộ phận là hai lựa chọn độc lập. Chọn tên sẽ không tự gán hoặc thay đổi Bộ phận." })
             ] }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
               /* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", { className: "block text-sm font-medium text-gray-700 mb-2", children: "B\u1ED9 ph\u1EADn" }),
@@ -24134,7 +24126,7 @@ Kế hoạch là tốt cho mình, là giúp mình kiểm soát nhiệm vụ giao
                 "select",
                 {
                   value: plan.department,
-                  onChange: (e) => setPlan((prev) => ({ ...prev, department: e.target.value, employeeName: "" })),
+                  onChange: (e) => setPlan((prev) => ({ ...prev, department: e.target.value })),
                   className: "w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all",
                   children: [
                     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "", children: "-- Ch\u1ECDn b\u1ED9 ph\u1EADn --" }),
